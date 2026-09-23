@@ -9,7 +9,6 @@ const client = new Client({
     ] 
 });
 
-// Daftar Slash Command (/logs, /roleadd, /acc)
 const commands = [
     new SlashCommandBuilder()
         .setName('logs')
@@ -29,6 +28,13 @@ const commands = [
         .addRoleOption(option => option.setName('role2').setDescription('Role kedua (opsional)').setRequired(false)),
 
     new SlashCommandBuilder()
+        .setName('roleremove')
+        .setDescription('Menghapus 1 atau 2 role sekaligus dari member')
+        .addUserOption(option => option.setName('member').setDescription('Pilih member target').setRequired(true))
+        .addRoleOption(option => option.setName('role1').setDescription('Role pertama yang ingin dihapus').setRequired(true))
+        .addRoleOption(option => option.setName('role2').setDescription('Role kedua (opsional)').setRequired(false)),
+
+    new SlashCommandBuilder()
         .setName('acc')
         .setDescription('Kirim hasil application accepted')
         .addUserOption(option => option.setName('applicant').setDescription('Pilih member yang diaplikasi').setRequired(true))
@@ -40,13 +46,9 @@ const commands = [
 
 client.once('ready', async () => {
     console.log(`Bot ${client.user.tag} sudah online!`);
-
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
-        await rest.put(
-            Routes.applicationCommands(client.user.id),
-            { body: commands },
-        );
+        await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
         console.log('Berhasil mendaftarkan semua slash commands!');
     } catch (error) {
         console.error(error);
@@ -56,11 +58,14 @@ client.once('ready', async () => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    // 1. Logic untuk /logs (Khusus Staff)
+    // 1. Logic /logs
     if (interaction.commandName === 'logs') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
+
+        await interaction.deferReply({ ephemeral: true });
+        await interaction.deleteReply();
 
         const fullName = interaction.options.getString('fullname');
         const memberUser = interaction.options.getUser('member');
@@ -87,23 +92,23 @@ client.on('interactionCreate', async interaction => {
             .setFooter({ text: `Signed By ${interaction.user.username}` })
             .setTimestamp();
 
-        await interaction.reply({ content: 'Log berhasil dikirim!', ephemeral: true });
         await interaction.channel.send({ embeds: [embed] });
     }
 
-    // 2. Logic untuk /roleadd (Khusus Staff)
+    // 2. Logic /roleadd
     if (interaction.commandName === 'roleadd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
+        await interaction.deferReply({ ephemeral: true });
+        await interaction.deleteReply();
+
         const targetUser = interaction.options.getUser('member');
         const role1 = interaction.options.getRole('role1');
         const role2 = interaction.options.getRole('role2');
 
-        if (!interaction.guild) {
-            return interaction.reply({ content: 'Command ini hanya bisa digunakan di dalam server!', ephemeral: true });
-        }
+        if (!interaction.guild) return;
 
         try {
             const member = await interaction.guild.members.fetch(targetUser.id);
@@ -122,19 +127,58 @@ client.on('interactionCreate', async interaction => {
                 )
                 .setTimestamp();
 
-            await interaction.reply({ content: 'Role berhasil ditambahkan!', ephemeral: true });
             await interaction.channel.send({ embeds: [embedRole] });
         } catch (error) {
             console.error(error);
-            await interaction.reply({ content: 'Gagal menambahkan role. Pastikan posisi bot berada di atas role target!', ephemeral: true });
         }
     }
 
-    // 3. Logic untuk /acc (Khusus Staff)
+    // 3. Logic /roleremove
+    if (interaction.commandName === 'roleremove') {
+        if (!interaction.member.permissions.has('ManageRoles')) {
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        await interaction.deleteReply();
+
+        const targetUser = interaction.options.getUser('member');
+        const role1 = interaction.options.getRole('role1');
+        const role2 = interaction.options.getRole('role2');
+
+        if (!interaction.guild) return;
+
+        try {
+            const member = await interaction.guild.members.fetch(targetUser.id);
+            if (role1) await member.roles.remove(role1);
+            if (role2) await member.roles.remove(role2);
+
+            let removedRolesText = role2 ? `${role1} & ${role2}` : `${role1}`;
+
+            const embedRemove = new EmbedBuilder()
+                .setColor('#e74c3c')
+                .setDescription(
+                    `🗑️ **Role Dicopot / Dihapus**\n\n` +
+                    `• **Server Role / Target:** ${removedRolesText}\n` +
+                    `• **Berhasil Dicopot Dari:** ${targetUser}\n\n` +
+                    `Dicopot oleh ${interaction.user}`
+                )
+                .setTimestamp();
+
+            await interaction.channel.send({ embeds: [embedRemove] });
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    // 4. Logic /acc
     if (interaction.commandName === 'acc') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
+
+        await interaction.deferReply({ ephemeral: true });
+        await interaction.deleteReply();
 
         const applicant = interaction.options.getUser('applicant');
         const status = interaction.options.getString('status');
@@ -160,27 +204,22 @@ client.on('interactionCreate', async interaction => {
             .setImage(fixedAccImageUrl)
             .setTimestamp();
 
-        await interaction.reply({ content: 'Application result berhasil dikirim!', ephemeral: true });
         await interaction.channel.send({ embeds: [embedAcc] });
     }
 });
 
-// Logic untuk Text Command (!setnick dan !lock / !L)
+// Text Commands (!setnick, !lock, dan !teks)
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // Command: !setnick @User NicknameBaru (Khusus Staff)
+    // Command: !setnick
     if (message.content.startsWith('!setnick')) {
-        if (!message.member.permissions.has('ManageNicknames')) {
-            return message.reply('❌ Anda tidak memiliki izin untuk mengubah nickname!');
-        }
+        if (!message.member.permissions.has('ManageNicknames')) return;
 
         const targetUser = message.mentions.users.first();
         const newNickname = message.content.replace('!setnick', '').replace(/<@!?\d+>/, '').trim();
 
-        if (!targetUser || !newNickname) {
-            return message.reply('Format salah! Contoh: `!setnick @User NamaBaru`');
-        }
+        if (!targetUser || !newNickname) return;
 
         try {
             const member = await message.guild.members.fetch(targetUser.id);
@@ -199,19 +238,12 @@ client.on('messageCreate', async message => {
             await message.channel.send({ embeds: [embedNick] });
         } catch (error) {
             console.error(error);
-            message.reply('Gagal mengubah nickname. Pastikan posisi role bot di atas member tersebut!');
         }
     }
 
-    // Command: !lock atau !L (Khusus Staff)
+    // Command: !lock atau !L
     if (message.content === '!lock' || message.content === '!L') {
-        if (!message.member.permissions.has('ManageChannels')) {
-            return message.reply('❌ Perintah ini khusus untuk Moderator/Staff!');
-        }
-
-        if (!message.channel.isThread() && !message.channel.isTextBased()) {
-            return message.reply('Command ini hanya bisa digunakan di dalam channel/thread!');
-        }
+        if (!message.member.permissions.has('ManageChannels')) return;
 
         try {
             if (message.channel.isThread()) {
@@ -233,9 +265,26 @@ client.on('messageCreate', async message => {
             await message.channel.send({ embeds: [embedLock] });
         } catch (error) {
             console.error(error);
-            message.reply('Gagal mengunci channel/thread. Periksa izin bot!');
+        }
+    }
+
+    // Command Baru: !teks (Bot mengirim pesan teks sesuai input admin dan menghapus pesan aslinya)
+    if (message.content.startsWith('!teks')) {
+        if (!message.member.permissions.has('Administrator') && !message.member.permissions.has('ManageMessages')) return;
+
+        const textToSend = message.content.slice(5).trim();
+        if (!textToSend) return;
+
+        try {
+            // Hapus pesan perintah !teks dari admin agar chat tetap bersih
+            await message.delete();
+            // Kirim teks murni melalui bot
+            await message.channel.send(textToSend);
+        } catch (error) {
+            console.error(error);
         }
     }
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
