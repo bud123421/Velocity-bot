@@ -231,7 +231,7 @@ client.on('interactionCreate', async interaction => {
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
                 `• \`!lock\` atau \`!L\` - Mengunci channel atau thread.\n` +
-                `• \`!teks [pesan] + [foto]\` - Menyuruh bot mengirim pesan teks & foto.\n` +
+                `• \`!teks [pesan] + [foto]\` - Menyuruh bot mengirim pesan embed teks & foto.\n` +
                 `• \`!clear [jumlah]\` - Menghapus pesan chat secara massal.`
             )
             .setFooter({ text: `Requested by ${interaction.user.username}` })
@@ -299,7 +299,7 @@ client.on('messageCreate', async message => {
         }
     }
 
-    // Command: !teks (Diperbaiki agar attachment foto tidak 0 bytes / dokumen mentah)
+    // Command: !teks (Menggunakan Embed agar teks & foto tampil rapi tanpa nama file/link mentah)
     if (message.content.startsWith('!teks')) {
         if (!message.member.permissions.has('Administrator') && !message.member.permissions.has('ManageMessages')) return;
 
@@ -309,11 +309,29 @@ client.on('messageCreate', async message => {
         if (!textToSend && attachments.length === 0) return;
 
         try {
-            await message.delete();
-            await message.channel.send({
-                content: textToSend || undefined,
-                files: attachments
-            });
+            await message.delete(); // Menghapus pesan asli admin
+
+            // Jika ada foto yang dilampirkan, buatkan embed dengan gambar
+            if (attachments.length > 0) {
+                // Mengirim foto pertama sebagai gambar utama embed
+                const embedText = new EmbedBuilder()
+                    .setColor('#1a1a1a')
+                    .setDescription(textToSend || null)
+                    .setImage(attachments[0]);
+
+                await message.channel.send({ embeds: [embedText] });
+
+                // Jika ada foto kedua, ketiga, dst., kirim sebagai embed tambahan di bawahnya berjejer
+                for (let i = 1; i < attachments.length; i++) {
+                    const extraEmbed = new EmbedBuilder()
+                        .setColor('#1a1a1a')
+                        .setImage(attachments[i]);
+                    await message.channel.send({ embeds: [extraEmbed] });
+                }
+            } else {
+                // Jika hanya teks saja tanpa foto
+                await message.channel.send(textToSend);
+            }
         } catch (error) {
             console.error(error);
         }
