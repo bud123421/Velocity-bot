@@ -19,7 +19,8 @@ client.once('ready', async () => {
     console.log(`Bot ${client.user.tag} sudah online!`);
     
     // Deploy Slash Commands
-    const rest = new REST({ version: '10' }).setToken('TOKEN_BOT_ANDA');
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+
     try {
         await rest.put(
             Routes.applicationCommands(client.user.id),
