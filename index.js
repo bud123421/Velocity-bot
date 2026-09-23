@@ -299,39 +299,30 @@ client.on('messageCreate', async message => {
         }
     }
 
-    // Command: !teks (Menggunakan Embed agar teks & foto tampil rapi tanpa nama file/link mentah)
+        // Command: !teks (Versi Aman untuk Kirim Foto & Teks dari HP)
     if (message.content.startsWith('!teks')) {
         if (!message.member.permissions.has('Administrator') && !message.member.permissions.has('ManageMessages')) return;
 
         const textToSend = message.content.slice(5).trim();
-        const attachments = message.attachments.map(att => att.proxyURL || att.url);
+        
+        // Mengambil file dengan konversi penanganan langsung dari attachment Discord
+        const filesToSend = message.attachments.map(att => {
+            return {
+                attachment: att.url,
+                name: att.name
+            };
+        });
 
-        if (!textToSend && attachments.length === 0) return;
+        if (!textToSend && filesToSend.length === 0) return;
 
         try {
             await message.delete(); // Menghapus pesan asli admin
-
-            // Jika ada foto yang dilampirkan, buatkan embed dengan gambar
-            if (attachments.length > 0) {
-                // Mengirim foto pertama sebagai gambar utama embed
-                const embedText = new EmbedBuilder()
-                    .setColor('#1a1a1a')
-                    .setDescription(textToSend || null)
-                    .setImage(attachments[0]);
-
-                await message.channel.send({ embeds: [embedText] });
-
-                // Jika ada foto kedua, ketiga, dst., kirim sebagai embed tambahan di bawahnya berjejer
-                for (let i = 1; i < attachments.length; i++) {
-                    const extraEmbed = new EmbedBuilder()
-                        .setColor('#1a1a1a')
-                        .setImage(attachments[i]);
-                    await message.channel.send({ embeds: [extraEmbed] });
-                }
-            } else {
-                // Jika hanya teks saja tanpa foto
-                await message.channel.send(textToSend);
-            }
+            
+            // Mengirim ulang teks dan foto secara bersamaan dengan bersih
+            await message.channel.send({
+                content: textToSend || undefined,
+                files: filesToSend
+            });
         } catch (error) {
             console.error(error);
         }
