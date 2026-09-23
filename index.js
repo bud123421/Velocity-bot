@@ -299,30 +299,29 @@ client.on('messageCreate', async message => {
         }
     }
 
-        // Command: !teks (Versi Aman untuk Kirim Foto & Teks dari HP)
+            // Command: !teks (Versi Embed pakai teks & link gambar)
     if (message.content.startsWith('!teks')) {
         if (!message.member.permissions.has('Administrator') && !message.member.permissions.has('ManageMessages')) return;
 
-        const textToSend = message.content.slice(5).trim();
-        
-        // Mengambil file dengan konversi penanganan langsung dari attachment Discord
-        const filesToSend = message.attachments.map(att => {
-            return {
-                attachment: att.url,
-                name: att.name
-            };
-        });
+        const fullContent = message.content.slice(5).trim();
+        const parts = fullContent.split('|');
+        const textToSend = parts[0] ? parts[0].trim() : '';
+        const imageUrl = parts[1] ? parts[1].trim() : (message.attachments.first() ? message.attachments.first().url : null);
 
-        if (!textToSend && filesToSend.length === 0) return;
+        if (!textToSend && !imageUrl) return;
 
         try {
             await message.delete(); // Menghapus pesan asli admin
-            
-            // Mengirim ulang teks dan foto secara bersamaan dengan bersih
-            await message.channel.send({
-                content: textToSend || undefined,
-                files: filesToSend
-            });
+
+            const embedText = new EmbedBuilder()
+                .setColor('#1a1a1a')
+                .setDescription(textToSend || null);
+
+            if (imageUrl) {
+                embedText.setImage(imageUrl);
+            }
+
+            await message.channel.send({ embeds: [embedText] });
         } catch (error) {
             console.error(error);
         }
