@@ -44,6 +44,14 @@ const commands = [
         .addStringOption(option => option.setName('note').setDescription('Catatan tambahan').setRequired(true)),
 
     new SlashCommandBuilder()
+        .setName('teks')
+        .setDescription('Kirim pesan estetik multi-embed ala workshop')
+        .addStringOption(option => option.setName('judul_atas').setDescription('Judul / Teks bagian atas').setRequired(true))
+        .addStringOption(option => option.setName('foto_atas').setDescription('Link foto bagian atas').setRequired(true))
+        .addStringOption(option => option.setName('deskripsi_bawah').setDescription('Deskripsi / Detail informasi bagian bawah').setRequired(true))
+        .addStringOption(option => option.setName('foto_bawah').setDescription('Link foto bagian bawah (opsional)').setRequired(false)),
+
+    new SlashCommandBuilder()
         .setName('cmd')
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
@@ -211,7 +219,42 @@ client.on('interactionCreate', async interaction => {
         await interaction.channel.send({ embeds: [embedAcc] });
     }
 
-    // 5. Logic /cmd
+    // 5. Logic /teks (Multi-Embed Estetik)
+    if (interaction.commandName === 'teks') {
+        if (!interaction.member.permissions.has('Administrator') && !interaction.member.permissions.has('ManageMessages')) {
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        await interaction.deleteReply();
+
+        const judulAtas = interaction.options.getString('judul_atas');
+        const fotoAtas = interaction.options.getString('foto_atas');
+        const deskripsiBawah = interaction.options.getString('deskripsi_bawah');
+        const fotoBawah = interaction.options.getString('foto_bawah');
+
+        const embedAtas = new EmbedBuilder()
+            .setColor('#1a1a1a')
+            .setImage(fotoAtas)
+            .setDescription(judulAtas);
+
+        const embedsList = [embedAtas];
+
+        if (deskripsiBawah) {
+            const embedBawah = new EmbedBuilder()
+                .setColor('#1a1a1a')
+                .setDescription(deskripsiBawah);
+
+            if (fotoBawah) {
+                embedBawah.setImage(fotoBawah);
+            }
+            embedsList.push(embedBawah);
+        }
+
+        await interaction.channel.send({ embeds: embedsList });
+    }
+
+    // 6. Logic /cmd
     if (interaction.commandName === 'cmd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -227,11 +270,12 @@ client.on('interactionCreate', async interaction => {
                 `• \`/roleadd\` - Menambahkan 1 atau 2 role sekaligus ke member.\n` +
                 `• \`/roleremove\` - Menghapus 1 atau 2 role sekaligus dari member.\n` +
                 `• \`/acc\` - Mengirim hasil review application.\n` +
+                `• \`/teks\` - Kirim pesan estetik multi-embed.\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
                 `• \`!lock\` atau \`!L\` - Mengunci channel atau thread.\n` +
-                `• \`!teks [pesan] + [foto]\` - Menyuruh bot mengirim pesan embed teks & foto.\n` +
+                `• \`!teks [Judul] | [Link Foto1] | [Deskripsi] | [Link Foto2]\` - Kirim multi-embed via chat.\n` +
                 `• \`!clear [jumlah]\` - Menghapus pesan chat secara massal.`
             )
             .setFooter({ text: `Requested by ${interaction.user.username}` })
@@ -299,39 +343,43 @@ client.on('messageCreate', async message => {
         }
     }
 
-                // Command: !teks (Bisa kirim banyak foto sekaligus secara otomatis)
+    // Command: !teks (Text Command multi-embed menggunakan pemisah |)
     if (message.content.startsWith('!teks')) {
         if (!message.member.permissions.has('Administrator') && !message.member.permissions.has('ManageMessages')) return;
 
-        const textToSend = message.content.slice(5).trim();
-        // Mengambil semua link gambar yang di-upload sekaligus
-        const attachments = message.attachments.map(att => att.url);
+        const fullContent = message.content.slice(5).trim();
+        const parts = fullContent.split('|').map(p => p.trim());
+        
+        const judulAtas = parts[0] || '';
+        const fotoAtas = parts[1] || '';
+        const deskripsiBawah = parts[2] || '';
+        const fotoBawah = parts[3] || '';
 
-        if (!textToSend && attachments.length === 0) return;
+        if (!judulAtas && !fotoAtas) return;
 
         try {
-            await message.delete(); // Menghapus pesan asli admin
+            await message.delete();
 
-            if (attachments.length > 0) {
-                // Membuat embed pertama untuk teks dan foto pertama
-                const firstEmbed = new EmbedBuilder()
-                    .setColor('#1a1a1a')
-                    .setDescription(textToSend || null)
-                    .setImage(attachments[0]);
+            const embedsList = [];
 
-                await message.channel.send({ embeds: [firstEmbed] });
+            if (judulAtas || fotoAtas) {
+                const embedAtas = new EmbedBuilder()
+                    .setColor('#1a1a1a');
+                if (judulAtas) embedAtas.setDescription(judulAtas);
+                if (fotoAtas) embedAtas.setImage(fotoAtas);
+                embedsList.push(embedAtas);
+            }
 
-                // Jika ada foto kedua, ketiga, dst., buatkan embed tambahan untuk masing-masing foto
-                for (let i = 1; i < attachments.length; i++) {
-                    const nextEmbed = new EmbedBuilder()
-                        .setColor('#1a1a1a')
-                        .setImage(attachments[i]);
+            if (deskripsiBawah || fotoBawah) {
+                const embedBawah = new EmbedBuilder()
+                    .setColor('#1a1a1a');
+                if (deskripsiBawah) embedBawah.setDescription(deskripsiBawah);
+                if (fotoBawah) embedBawah.setImage(fotoBawah);
+                embedsList.push(embedBawah);
+            }
 
-                    await message.channel.send({ embeds: [nextEmbed] });
-                }
-            } else {
-                // Jika hanya teks saja tanpa foto
-                await message.channel.send(textToSend);
+            if (embedsList.length > 0) {
+                await message.channel.send({ embeds: embedsList });
             }
         } catch (error) {
             console.error(error);
