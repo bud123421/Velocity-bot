@@ -44,7 +44,7 @@ const commands = [
         .addStringOption(option => option.setName('note').setDescription('Catatan tambahan').setRequired(true)),
 
     new SlashCommandBuilder()
-        .setName('list')
+        .setName('cmd')
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
 
@@ -211,8 +211,8 @@ client.on('interactionCreate', async interaction => {
         await interaction.channel.send({ embeds: [embedAcc] });
     }
 
-    // 5. Logic /list
-    if (interaction.commandName === 'list') {
+    // 5. Logic /cmd
+    if (interaction.commandName === 'cmd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
@@ -227,7 +227,7 @@ client.on('interactionCreate', async interaction => {
                 `• \`/roleadd\` - Menambahkan 1 atau 2 role sekaligus ke member.\n` +
                 `• \`/roleremove\` - Menghapus 1 atau 2 role sekaligus dari member.\n` +
                 `• \`/acc\` - Mengirim hasil review application.\n` +
-                `• \`/list\` - Menampilkan daftar perintah ini.\n\n` +
+                `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
                 `• \`!lock\` atau \`!L\` - Mengunci channel atau thread.\n` +
