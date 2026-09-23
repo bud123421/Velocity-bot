@@ -247,14 +247,12 @@ client.on('interactionCreate', async interaction => {
 
         const embedsList = [];
 
-        // Embed Utama (Judul + Foto 1)
         const embed1 = new EmbedBuilder()
             .setColor('#1a1a1a')
             .setDescription(`**${judulUtama}**`)
             .setImage(foto1);
         embedsList.push(embed1);
 
-        // Pasangan Opsional (Deskripsi & Foto berikutnya)
         const pairs = [
             { desk: desk1, foto: foto2 },
             { desk: desk2, foto: foto3 },
@@ -430,4 +428,3 @@ client.on('messageCreate', async message => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-
