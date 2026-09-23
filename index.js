@@ -299,29 +299,40 @@ client.on('messageCreate', async message => {
         }
     }
 
-            // Command: !teks (Versi Embed pakai teks & link gambar)
+                // Command: !teks (Bisa kirim banyak foto sekaligus secara otomatis)
     if (message.content.startsWith('!teks')) {
         if (!message.member.permissions.has('Administrator') && !message.member.permissions.has('ManageMessages')) return;
 
-        const fullContent = message.content.slice(5).trim();
-        const parts = fullContent.split('|');
-        const textToSend = parts[0] ? parts[0].trim() : '';
-        const imageUrl = parts[1] ? parts[1].trim() : (message.attachments.first() ? message.attachments.first().url : null);
+        const textToSend = message.content.slice(5).trim();
+        // Mengambil semua link gambar yang di-upload sekaligus
+        const attachments = message.attachments.map(att => att.url);
 
-        if (!textToSend && !imageUrl) return;
+        if (!textToSend && attachments.length === 0) return;
 
         try {
             await message.delete(); // Menghapus pesan asli admin
 
-            const embedText = new EmbedBuilder()
-                .setColor('#1a1a1a')
-                .setDescription(textToSend || null);
+            if (attachments.length > 0) {
+                // Membuat embed pertama untuk teks dan foto pertama
+                const firstEmbed = new EmbedBuilder()
+                    .setColor('#1a1a1a')
+                    .setDescription(textToSend || null)
+                    .setImage(attachments[0]);
 
-            if (imageUrl) {
-                embedText.setImage(imageUrl);
+                await message.channel.send({ embeds: [firstEmbed] });
+
+                // Jika ada foto kedua, ketiga, dst., buatkan embed tambahan untuk masing-masing foto
+                for (let i = 1; i < attachments.length; i++) {
+                    const nextEmbed = new EmbedBuilder()
+                        .setColor('#1a1a1a')
+                        .setImage(attachments[i]);
+
+                    await message.channel.send({ embeds: [nextEmbed] });
+                }
+            } else {
+                // Jika hanya teks saja tanpa foto
+                await message.channel.send(textToSend);
             }
-
-            await message.channel.send({ embeds: [embedText] });
         } catch (error) {
             console.error(error);
         }
