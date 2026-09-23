@@ -45,14 +45,17 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('teks')
-        .setDescription('Kirim pesan teks estetik dengan opsi hingga 5 foto')
-        .addStringOption(option => option.setName('judul').setDescription('Judul / teks utama').setRequired(true))
-        .addStringOption(option => option.setName('foto1').setDescription('Link foto utama (wajib)').setRequired(true))
-        .addStringOption(option => option.setName('deskripsi').setDescription('Deskripsi / detail teks (opsional)').setRequired(false))
-        .addStringOption(option => option.setName('foto2').setDescription('Link foto ke-2 (opsional)').setRequired(false))
-        .addStringOption(option => option.setName('foto3').setDescription('Link foto ke-3 (opsional)').setRequired(false))
-        .addStringOption(option => option.setName('foto4').setDescription('Link foto ke-4 (opsional)').setRequired(false))
-        .addStringOption(option => option.setName('foto5').setDescription('Link foto ke-5 (opsional)').setRequired(false)),
+        .setDescription('Kirim pesan estetik berselang-seling foto & deskripsi')
+        .addStringOption(option => option.setName('judul_utama').setDescription('Judul utama / teks pertama').setRequired(true))
+        .addStringOption(option => option.setName('foto_1').setDescription('Link foto utama (wajib)').setRequired(true))
+        .addStringOption(option => option.setName('deskripsi_1').setDescription('Deskripsi ke-1 (opsional)').setRequired(false))
+        .addStringOption(option => option.setName('foto_2').setDescription('Link foto ke-2 (opsional)').setRequired(false))
+        .addStringOption(option => option.setName('deskripsi_2').setDescription('Deskripsi ke-2 (opsional)').setRequired(false))
+        .addStringOption(option => option.setName('foto_3').setDescription('Link foto ke-3 (opsional)').setRequired(false))
+        .addStringOption(option => option.setName('deskripsi_3').setDescription('Deskripsi ke-3 (opsional)').setRequired(false))
+        .addStringOption(option => option.setName('foto_4').setDescription('Link foto ke-4 (opsional)').setRequired(false))
+        .addStringOption(option => option.setName('deskripsi_4').setDescription('Deskripsi ke-4 (opsional)').setRequired(false))
+        .addStringOption(option => option.setName('foto_5').setDescription('Link foto ke-5 (opsional)').setRequired(false)),
 
     new SlashCommandBuilder()
         .setName('cmd')
@@ -222,7 +225,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.channel.send({ embeds: [embedAcc] });
     }
 
-    // 5. Logic /teks (Slash Command)
+    // 5. Logic /teks (Multi-embed berselang-seling foto & deskripsi opsional)
     if (interaction.commandName === 'teks') {
         if (!interaction.member.permissions.has('Administrator') && !interaction.member.permissions.has('ManageMessages')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -231,35 +234,39 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply({ ephemeral: true });
         await interaction.deleteReply();
 
-        const judul = interaction.options.getString('judul');
-        const deskripsi = interaction.options.getString('deskripsi');
-        
-        const foto1 = interaction.options.getString('foto1');
-        const foto2 = interaction.options.getString('foto2');
-        const foto3 = interaction.options.getString('foto3');
-        const foto4 = interaction.options.getString('foto4');
-        const foto5 = interaction.options.getString('foto5');
+        const judulUtama = interaction.options.getString('judul_utama');
+        const foto1 = interaction.options.getString('foto_1');
+        const desk1 = interaction.options.getString('deskripsi_1');
+        const foto2 = interaction.options.getString('foto_2');
+        const desk2 = interaction.options.getString('deskripsi_2');
+        const foto3 = interaction.options.getString('foto_3');
+        const desk3 = interaction.options.getString('deskripsi_3');
+        const foto4 = interaction.options.getString('foto_4');
+        const desk4 = interaction.options.getString('deskripsi_4');
+        const foto5 = interaction.options.getString('foto_5');
 
         const embedsList = [];
 
-        const mainEmbed = new EmbedBuilder()
+        // Embed Utama (Judul + Foto 1)
+        const embed1 = new EmbedBuilder()
             .setColor('#1a1a1a')
+            .setDescription(`**${judulUtama}**`)
             .setImage(foto1);
+        embedsList.push(embed1);
 
-        if (deskripsi) {
-            mainEmbed.setDescription(`**${judul}**\n\n${deskripsi}`);
-        } else {
-            mainEmbed.setDescription(`**${judul}**`);
-        }
+        // Pasangan Opsional (Deskripsi & Foto berikutnya)
+        const pairs = [
+            { desk: desk1, foto: foto2 },
+            { desk: desk2, foto: foto3 },
+            { desk: desk3, foto: foto4 },
+            { desk: desk4, foto: foto5 }
+        ];
 
-        embedsList.push(mainEmbed);
-
-        const additionalPhotos = [foto2, foto3, foto4, foto5];
-        for (const photoUrl of additionalPhotos) {
-            if (photoUrl) {
-                const extraEmbed = new EmbedBuilder()
-                    .setColor('#1a1a1a')
-                    .setImage(photoUrl);
+        for (const p of pairs) {
+            if (p.desk || p.foto) {
+                const extraEmbed = new EmbedBuilder().setColor('#1a1a1a');
+                if (p.desk) extraEmbed.setDescription(p.desk);
+                if (p.foto) extraEmbed.setImage(p.foto);
                 embedsList.push(extraEmbed);
             }
         }
@@ -283,12 +290,12 @@ client.on('interactionCreate', async interaction => {
                 `• \`/roleadd\` - Menambahkan 1 atau 2 role sekaligus ke member.\n` +
                 `• \`/roleremove\` - Menghapus 1 atau 2 role sekaligus dari member.\n` +
                 `• \`/acc\` - Mengirim hasil review application.\n` +
-                `• \`/teks\` - Kirim teks dengan opsi hingga 5 foto estetik.\n` +
+                `• \`/teks\` - Kirim pesan estetik multi-embed berselang-seling.\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
                 `• \`!lock\` atau \`!L\` - Mengunci channel atau thread.\n` +
-                `• \`!teks [Judul] | [Link Foto1] | [Deskripsi] | [Link Foto2]\` - Kirim multi-embed via chat.\n` +
+                `• \`!teks [Judul] | [Foto1] | [Deskripsi] | [Foto2]\` - Kirim via chat.\n` +
                 `• \`!clear [jumlah]\` - Menghapus pesan chat secara massal.`
             )
             .setFooter({ text: `Requested by ${interaction.user.username}` })
@@ -376,16 +383,14 @@ client.on('messageCreate', async message => {
             const embedsList = [];
 
             if (judulAtas || fotoAtas) {
-                const embedAtas = new EmbedBuilder()
-                    .setColor('#1a1a1a');
+                const embedAtas = new EmbedBuilder().setColor('#1a1a1a');
                 if (judulAtas) embedAtas.setDescription(judulAtas);
                 if (fotoAtas) embedAtas.setImage(fotoAtas);
                 embedsList.push(embedAtas);
             }
 
             if (deskripsiBawah || fotoBawah) {
-                const embedBawah = new EmbedBuilder()
-                    .setColor('#1a1a1a');
+                const embedBawah = new EmbedBuilder().setColor('#1a1a1a');
                 if (deskripsiBawah) embedBawah.setDescription(deskripsiBawah);
                 if (fotoBawah) embedBawah.setImage(fotoBawah);
                 embedsList.push(embedBawah);
