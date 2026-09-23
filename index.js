@@ -50,14 +50,14 @@ client.on('interactionCreate', async interaction => {
         const embed = new EmbedBuilder()
             .setColor('#1a1a1a')
             .setTitle('VEC LOGS')
-            .setDescription('**LOGS VELOCITY ELITE CLUB**\n' +
-                `• Full Name: **${fullName}**\n` +
-                `• Discord: **${memberUser}**\n` +
-                `• Status: **${status}**\n` +
-                `• Logs To: **${logsTo}**\n` +
-                `• Reason: **${reason}**\n` +
-                `• Note: **${note}**\n\n` +
-                `• Logs By: **${interaction.user}**`
+            .setDescription('__**LOGS VELOCITY ELITE CLUB**__\n' +
+                `> • Full Name: **${fullName}**\n` +
+                `> • Discord: **${memberUser}**\n` +
+                `> • Status: **${status}**\n` +
+                `> • Logs To: **${logsTo}**\n` +
+                `> • Reason: **${reason}**\n` +
+                `> • Note: **${note}**\n\n` +
+                `> • Logs By: **${interaction.user}**`
             )
             .setImage(fixedImageUrl)
             .setFooter({ text: `Signed By ${interaction.user.username}` })
