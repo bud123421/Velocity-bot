@@ -41,7 +41,11 @@ const commands = [
         .addStringOption(option => option.setName('status').setDescription('Status aplikasi (misal: accept)').setRequired(true))
         .addRoleOption(option => option.setName('role').setDescription('Role yang diberikan').setRequired(true))
         .addStringOption(option => option.setName('reason').setDescription('Alasan').setRequired(true))
-        .addStringOption(option => option.setName('note').setDescription('Catatan tambahan').setRequired(true))
+        .addStringOption(option => option.setName('note').setDescription('Catatan tambahan').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('list')
+        .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
@@ -206,13 +210,41 @@ client.on('interactionCreate', async interaction => {
 
         await interaction.channel.send({ embeds: [embedAcc] });
     }
+
+    // 5. Logic /list
+    if (interaction.commandName === 'list') {
+        if (!interaction.member.permissions.has('ManageRoles')) {
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+        }
+
+        const embedList = new EmbedBuilder()
+            .setColor('#1a1a1a')
+            .setTitle('📜 VEC BOT COMMAND LIST')
+            .setDescription(
+                `Berikut adalah daftar perintah bot yang tersedia untuk Staff/Admin:\n\n` +
+                `**🔹 Slash Commands (/):**\n` +
+                `• \`/logs\` - Mengirim log data member baru.\n` +
+                `• \`/roleadd\` - Menambahkan 1 atau 2 role sekaligus ke member.\n` +
+                `• \`/roleremove\` - Menghapus 1 atau 2 role sekaligus dari member.\n` +
+                `• \`/acc\` - Mengirim hasil review application.\n` +
+                `• \`/list\` - Menampilkan daftar perintah ini.\n\n` +
+                `**🔹 Text Commands (!):**\n` +
+                `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
+                `• \`!lock\` atau \`!L\` - Mengunci channel atau thread.\n` +
+                `• \`!teks [pesan] + [foto]\` - Menyuruh bot mengirim pesan teks & foto.\n` +
+                `• \`!clear [jumlah]\` - Menghapus pesan chat secara massal.`
+            )
+            .setFooter({ text: `Requested by ${interaction.user.username}` })
+            .setTimestamp();
+
+        await interaction.reply({ embeds: [embedList], ephemeral: true });
+    }
 });
 
-// Text Commands (!setnick, !lock, dan !teks)
+// Text Commands (!setnick, !lock, !teks, dan !clear)
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // Command: !setnick
     if (message.content.startsWith('!setnick')) {
         if (!message.member.permissions.has('ManageNicknames')) return;
 
@@ -241,7 +273,6 @@ client.on('messageCreate', async message => {
         }
     }
 
-    // Command: !lock atau !L
     if (message.content === '!lock' || message.content === '!L') {
         if (!message.member.permissions.has('ManageChannels')) return;
 
@@ -268,23 +299,53 @@ client.on('messageCreate', async message => {
         }
     }
 
-    // Command Baru: !teks (Bot mengirim pesan teks sesuai input admin dan menghapus pesan aslinya)
+    // Command: !teks (Bisa mengirim teks DAN melampirkan foto sekaligus)
     if (message.content.startsWith('!teks')) {
         if (!message.member.permissions.has('Administrator') && !message.member.permissions.has('ManageMessages')) return;
 
         const textToSend = message.content.slice(5).trim();
-        if (!textToSend) return;
+        // Mengambil lampiran foto/gambar jika ada yang di-upload bersamaan dengan pesan
+        const attachments = message.attachments.map(attachment => attachment.url);
+
+        if (!textToSend && attachments.length === 0) return;
 
         try {
-            // Hapus pesan perintah !teks dari admin agar chat tetap bersih
-            await message.delete();
-            // Kirim teks murni melalui bot
-            await message.channel.send(textToSend);
+            await message.delete(); // Menghapus pesan asli admin
+            // Bot mengirim ulang teks beserta foto lampirannya (jika ada)
+            await message.channel.send({
+                content: textToSend || undefined,
+                files: attachments
+            });
         } catch (error) {
             console.error(error);
+        }
+    }
+
+    // Command Baru: !clear (Menghapus pesan massal, contoh: !clear 10)
+    if (message.content.startsWith('!clear')) {
+        if (!message.member.permissions.has('ManageMessages')) return;
+
+        const args = message.content.split(' ');
+        const amount = parseInt(args[1]);
+
+        if (isNaN(amount) || amount <= 0 || amount > 100) {
+            return message.reply('❌ Masukkan jumlah angka 1 sampai 100! Contoh: `!clear 10`').then(msg => {
+                setTimeout(() => msg.delete().catch(() => {}), 4000);
+            });
+        }
+
+        try {
+            await message.delete().catch(() => {}); // Hapus pesan command !clear dari admin
+            const deleted = await message.channel.bulkDelete(amount, true);
+            
+            // Memberi notifikasi sukses sebentar lalu otomatis hilang dalam 3 detik
+            const notify = await message.channel.send(`🧹 Berhasil menghapus **${deleted.size}** pesan.`);
+            setTimeout(() => notify.delete().catch(() => {}), 3000);
+        } catch (error) {
+            console.error(error);
+            message.reply('❌ Gagal menghapus pesan (pesan yang lebih dari 14 hari tidak bisa dihapus massal).');
         }
     }
 });
 
 client.login(process.env.DISCORD_TOKEN);
-
