@@ -299,19 +299,17 @@ client.on('messageCreate', async message => {
         }
     }
 
-    // Command: !teks (Bisa mengirim teks DAN melampirkan foto sekaligus)
+    // Command: !teks (Diperbaiki agar attachment foto tidak 0 bytes / dokumen mentah)
     if (message.content.startsWith('!teks')) {
         if (!message.member.permissions.has('Administrator') && !message.member.permissions.has('ManageMessages')) return;
 
         const textToSend = message.content.slice(5).trim();
-        // Mengambil lampiran foto/gambar jika ada yang di-upload bersamaan dengan pesan
-        const attachments = message.attachments.map(attachment => attachment.url);
+        const attachments = message.attachments.map(att => att.proxyURL || att.url);
 
         if (!textToSend && attachments.length === 0) return;
 
         try {
-            await message.delete(); // Menghapus pesan asli admin
-            // Bot mengirim ulang teks beserta foto lampirannya (jika ada)
+            await message.delete();
             await message.channel.send({
                 content: textToSend || undefined,
                 files: attachments
@@ -321,7 +319,6 @@ client.on('messageCreate', async message => {
         }
     }
 
-    // Command Baru: !clear (Menghapus pesan massal, contoh: !clear 10)
     if (message.content.startsWith('!clear')) {
         if (!message.member.permissions.has('ManageMessages')) return;
 
@@ -335,10 +332,9 @@ client.on('messageCreate', async message => {
         }
 
         try {
-            await message.delete().catch(() => {}); // Hapus pesan command !clear dari admin
+            await message.delete().catch(() => {});
             const deleted = await message.channel.bulkDelete(amount, true);
             
-            // Memberi notifikasi sukses sebentar lalu otomatis hilang dalam 3 detik
             const notify = await message.channel.send(`🧹 Berhasil menghapus **${deleted.size}** pesan.`);
             setTimeout(() => notify.delete().catch(() => {}), 3000);
         } catch (error) {
