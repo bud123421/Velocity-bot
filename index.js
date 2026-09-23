@@ -225,7 +225,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.channel.send({ embeds: [embedAcc] });
     }
 
-    // 5. Logic /teks (Multi-embed berselang-seling foto & deskripsi opsional)
+    // 5. Logic /teks
     if (interaction.commandName === 'teks') {
         if (!interaction.member.permissions.has('Administrator') && !interaction.member.permissions.has('ManageMessages')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -272,7 +272,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.channel.send({ embeds: embedsList });
     }
 
-    // 6. Logic /cmd
+    // 6. Logic /cmd (Publik - Bisa dilihat semua orang)
     if (interaction.commandName === 'cmd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -299,7 +299,8 @@ client.on('interactionCreate', async interaction => {
             .setFooter({ text: `Requested by ${interaction.user.username}` })
             .setTimestamp();
 
-        await interaction.reply({ embeds: [embedList], ephemeral: true });
+        // Mengirim pesan secara publik ke channel
+        await interaction.reply({ embeds: [embedList] });
     }
 });
 
