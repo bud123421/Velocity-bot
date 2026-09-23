@@ -2,7 +2,7 @@ const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuild
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 
-// Daftarkan Slash Command /logs
+// Daftar Slash Command /logs (Attachment gambar dihapus, diganti otomatis di kodingan)
 const commands = [
     new SlashCommandBuilder()
         .setName('logs')
@@ -12,15 +12,14 @@ const commands = [
         .addStringOption(option => option.setName('reason').setDescription('Alasan log').setRequired(true))
         .addStringOption(option => option.setName('note').setDescription('Catatan tambahan').setRequired(true))
         .addUserOption(option => option.setName('member').setDescription('Mention user discord member').setRequired(true))
-        .addAttachmentOption(option => option.setName('image').setDescription('Lampirkan bukti foto/screenshot').setRequired(true))
+        .addRoleOption(option => option.setName('logsto').setDescription('Pilih role tujuan log').setRequired(true))
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
     console.log(`Bot ${client.user.tag} sudah online!`);
-    
+
     // Deploy Slash Commands
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-
     try {
         await rest.put(
             Routes.applicationCommands(client.user.id),
@@ -42,21 +41,25 @@ client.on('interactionCreate', async interaction => {
         const status = interaction.options.getString('status');
         const reason = interaction.options.getString('reason');
         const note = interaction.options.getString('note');
-        const image = interaction.options.getAttachment('image');
+        const logsTo = interaction.options.getRole('logsto');
 
-        // Membuat Tampilan Embed (Mirip VEC LOGS di gambar)
+        // URL Gambar tetap otomatis (Ganti link di bawah dengan link gambar pilihan Anda)
+        const fixedImageUrl = 'https://cdn.discordapp.com/attachments/1533571778897514556/1549804646950768680/file_00000000494481fdaeb69b72f0c375ba-1.jpg?ex=6ab4994d&is=6ab347cd&hm=fc73a31caaf12737c036ac2f9cb1587baa7ec17c386bcb98e1e165a496d5d0d1&';
+
+        // Membuat Tampilan Embed
         const embed = new EmbedBuilder()
             .setColor('#1a1a1a')
             .setTitle('VEC LOGS')
             .setDescription('**LOGS VELOCITY ELITE CLUB**\n' +
-                `• **Full Name:** ${fullName}\n` +
-                `• **Discord:** <@${memberUser.id}>\n` +
-                `• **Status:** ${status}\n` +
-                `• **Logs To:** <@&ROLE_ID_TUJUAN>\n` +
-                `• **Reason:** ${reason}\n` +
-                `• **Note:** ${note}\n\n` +
-                `• **Logs By:** <@${interaction.user.id}>`)
-            .setImage(image.url)
+                `• Full Name: **${fullName}**\n` +
+                `• Discord: **${memberUser}**\n` +
+                `• Status: **${status}**\n` +
+                `• Logs To: **${logsTo}**\n` +
+                `• Reason: **${reason}**\n` +
+                `• Note: **${note}**\n\n` +
+                `• Logs By: **${interaction.user}**`
+            )
+            .setImage(fixedImageUrl)
             .setFooter({ text: `Signed By ${interaction.user.username}` })
             .setTimestamp();
 
@@ -66,4 +69,3 @@ client.on('interactionCreate', async interaction => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-
