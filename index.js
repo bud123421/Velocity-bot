@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 const client = new Client({ 
     intents: [
@@ -78,16 +78,54 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
+    // 1. Handle Tombol (Button)
     if (interaction.isButton()) {
         if (interaction.customId === 'update_vec_list') {
-            await interaction.reply({ content: '🔁 Fitur update list via tombol sedang disiapkan!', ephemeral: true });
+            const modal = new ModalBuilder()
+                .setCustomId('modal_update_list')
+                .setTitle('Edit / Update List Member VEC');
+
+            const roleInput = new TextInputBuilder()
+                .setCustomId('input_role_section')
+                .setLabel('Nama Role / Bagian (Contoh: Supervisor)')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('Ketik nama role target')
+                .setRequired(true);
+
+            const memberInput = new TextInputBuilder()
+                .setCustomId('input_member_names')
+                .setLabel('Daftar Nama / Mention Member')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('Contoh: - @Member1\n- @Member2')
+                .setRequired(true);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(roleInput),
+                new ActionRowBuilder().addComponents(memberInput)
+            );
+
+            await interaction.showModal(modal);
+        }
+        return;
+    }
+
+    // 2. Handle Modal Submit (Saat form dikirim)
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId === 'modal_update_list') {
+            const roleTarget = interaction.fields.getTextInputValue('input_role_section');
+            const newMembers = interaction.fields.getTextInputValue('input_member_names');
+
+            await interaction.reply({ 
+                content: `✅ Berhasil memperbarui data untuk kategori **${roleTarget}**!\n\n**Data Baru:**\n${newMembers}`, 
+                ephemeral: true 
+            });
         }
         return;
     }
 
     if (!interaction.isChatInputCommand()) return;
 
-    // 1. Logic /logs
+    // 3. Logic /logs
     if (interaction.commandName === 'logs') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -124,7 +162,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.channel.send({ embeds: [embed] });
     }
 
-    // 2. Logic /roleadd
+    // 4. Logic /roleadd
     if (interaction.commandName === 'roleadd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -162,7 +200,7 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // 3. Logic /roleremove
+    // 5. Logic /roleremove
     if (interaction.commandName === 'roleremove') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -200,7 +238,7 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // 4. Logic /acc
+    // 6. Logic /acc
     if (interaction.commandName === 'acc') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -236,7 +274,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.channel.send({ embeds: [embedAcc] });
     }
 
-    // 5. Logic /teks
+    // 7. Logic /teks
     if (interaction.commandName === 'teks') {
         if (!interaction.member.permissions.has('Administrator') && !interaction.member.permissions.has('ManageMessages')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -283,11 +321,14 @@ client.on('interactionCreate', async interaction => {
         await interaction.channel.send({ embeds: embedsList });
     }
 
-    // 6. Logic /vlist
+    // 8. Logic /vlist (Tanpa pesan teks berhasil dikirim)
     if (interaction.commandName === 'vlist') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
+
+        await interaction.deferReply({ ephemeral: true });
+        await interaction.deleteReply();
 
         const currentDate = new Date().toLocaleDateString('id-ID');
 
@@ -313,10 +354,9 @@ client.on('interactionCreate', async interaction => {
             );
 
         await interaction.channel.send({ content: listContent, components: [row] });
-        await interaction.reply({ content: '✅ List Member VEC berhasil dikirim!', ephemeral: true });
     }
 
-    // 7. Logic /cmd (Publik)
+    // 9. Logic /cmd (Publik)
     if (interaction.commandName === 'cmd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
