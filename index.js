@@ -82,14 +82,24 @@ const commands = [
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
 
-// Fungsi untuk membuat Embed list member & komponen tombolnya
+// Fungsi untuk membuat Embed list member & mengambil nama setelah '||'
 async function generateVECListPayload(guild) {
     await guild.members.fetch({ force: true });
 
     const getMembersByRole = (roleId) => {
         const role = guild.roles.cache.get(roleId);
         if (!role || role.members.size === 0) return '- N/A';
-        return role.members.map(m => `- ${m}`).join('\n');
+
+        return role.members.map(m => {
+            const fullName = m.displayName; // Contoh: "V-Newbie || Boris Castelano"
+            if (fullName.includes('||')) {
+                // Mengambil bagian sebelah kanan dari '||' dan merapikan spasi di depannya
+                const cleanName = fullName.split('||')[1].trim();
+                return `- ${cleanName}`;
+            }
+            // Jika tidak ada '||', tampilkan nama aslinya secara utuh
+            return `- ${fullName}`;
+        }).join('\n');
     };
 
     const currentDate = new Date().toLocaleDateString('id-ID');
@@ -141,7 +151,7 @@ client.on('interactionCreate', async interaction => {
                 return interaction.reply({ content: '❌ Tombol ini khusus untuk Staff/Admin!', ephemeral: true });
             }
 
-            await interaction.deferUpdate(); // Memproses pembaruan tanpa error timeout
+            await interaction.deferUpdate();
             const newPayload = await generateVECListPayload(interaction.guild);
             await interaction.message.edit(newPayload);
         }
@@ -525,3 +535,4 @@ client.on('messageCreate', async message => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
