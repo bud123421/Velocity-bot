@@ -36,10 +36,12 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('roleadd')
-        .setDescription('Menambahkan 1 atau 2 role sekaligus ke member')
+        .setDescription('Tambah role dan/atau hapus role lama member sekaligus (Tukar Pangkat)')
         .addUserOption(option => option.setName('member').setDescription('Pilih member target').setRequired(true))
-        .addRoleOption(option => option.setName('role1').setDescription('Role pertama yang ingin diberikan').setRequired(true))
-        .addRoleOption(option => option.setName('role2').setDescription('Role kedua (opsional)').setRequired(false)),
+        .addRoleOption(option => option.setName('add_role1').setDescription('Role yang ingin diberikan (wajib)').setRequired(true))
+        .addRoleOption(option => option.setName('add_role2').setDescription('Role tambahan yang ingin diberikan (opsional)').setRequired(false))
+        .addRoleOption(option => option.setName('remove_role1').setDescription('Role lama yang ingin dicopot (opsional)').setRequired(false))
+        .addRoleOption(option => option.setName('remove_role2').setDescription('Role lama kedua yang ingin dicopot (opsional)').setRequired(false)),
 
     new SlashCommandBuilder()
         .setName('roleremove')
@@ -80,9 +82,9 @@ const commands = [
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
 
-// Fungsi untuk membuat Embed list member
+// Fungsi untuk membuat Embed list member dengan force fetch agar nama tidak berbentuk ID
 async function generateVECListEmbed(guild) {
-    await guild.members.fetch(); // Memastikan cache member lengkap
+    await guild.members.fetch({ force: true });
 
     const getMembersByRole = (roleId) => {
         const role = guild.roles.cache.get(roleId);
@@ -190,7 +192,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.channel.send({ embeds: [embed] });
     }
 
-    // 2. Logic /roleadd
+    // 2. Logic /roleadd (Tambah & Hapus Role Sekaligus)
     if (interaction.commandName === 'roleadd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -200,26 +202,35 @@ client.on('interactionCreate', async interaction => {
         await interaction.deleteReply();
 
         const targetUser = interaction.options.getUser('member');
-        const role1 = interaction.options.getRole('role1');
-        const role2 = interaction.options.getRole('role2');
+        const addRole1 = interaction.options.getRole('add_role1');
+        const addRole2 = interaction.options.getRole('add_role2');
+        const removeRole1 = interaction.options.getRole('remove_role1');
+        const removeRole2 = interaction.options.getRole('remove_role2');
 
         if (!interaction.guild) return;
 
         try {
             const member = await interaction.guild.members.fetch(targetUser.id);
-            if (role1) await member.roles.add(role1);
-            if (role2) await member.roles.add(role2);
+            
+            let addedList = [];
+            let removedList = [];
 
-            let addedRolesText = role2 ? `${role1} & ${role2}` : `${role1}`;
+            // Proses Tambah Role
+            if (addRole1) { await member.roles.add(addRole1); addedList.push(`${addRole1}`); }
+            if (addRole2) { await member.roles.add(addRole2); addedList.push(`${addRole2}`); }
+
+            // Proses Hapus Role (Opsional)
+            if (removeRole1) { await member.roles.remove(removeRole1); removedList.push(`${removeRole1}`); }
+            if (removeRole2) { await member.roles.remove(removeRole2); removedList.push(`${removeRole2}`); }
+
+            let descText = `✨ **Manajemen Role Member**\n\n• **Target:** ${targetUser}\n`;
+            if (addedList.length > 0) descText += `• **Role Diberikan:** ${addedList.join(' & ')}\n`;
+            if (removedList.length > 0) descText += `• **Role Dicopot:** ${removedList.join(' & ')}\n`;
+            descText += `\nDiproses oleh ${interaction.user}`;
 
             const embedRole = new EmbedBuilder()
                 .setColor('#1a1a1a')
-                .setDescription(
-                    `✨ **Role Diberikan**\n\n` +
-                    `• **Server Role / Target:** ${addedRolesText}\n` +
-                    `• **Berhasil Di Berikan Kepada:** ${targetUser}\n\n` +
-                    `Diberikan oleh ${interaction.user}`
-                )
+                .setDescription(descText)
                 .setTimestamp();
 
             await interaction.channel.send({ embeds: [embedRole] });
@@ -378,8 +389,8 @@ client.on('interactionCreate', async interaction => {
                 `Berikut adalah daftar perintah bot yang tersedia untuk Staff/Admin:\n\n` +
                 `**🔹 Slash Commands (/):**\n` +
                 `• \`/logs\` - Mengirim log data member baru.\n` +
-                `• \`/roleadd\` - Menambahkan 1 atau 2 role sekaligus ke member.\n` +
-                `• \`/roleremove\` - Menghapus 1 atau 2 role sekaligus dari member.\n` +
+                `• \`/roleadd\` - Tambah & hapus role sekaligus (Tukar Pangkat).\n` +
+                `• \`/roleremove\` - Menghapus role dari member.\n` +
                 `• \`/acc\` - Mengirim hasil review application.\n` +
                 `• \`/teks\` - Kirim pesan estetik multi-embed berselang-seling.\n` +
                 `• \`/setupvlist\` - Inisialisasi list member otomatis (Embed).\n` +
@@ -522,3 +533,4 @@ client.on('messageCreate', async message => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
