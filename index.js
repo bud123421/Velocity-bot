@@ -73,27 +73,26 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('setupvlist')
-        .setDescription('Inisialisasi pesan List Member VEC otomatis'),
+        .setDescription('Inisialisasi pesan List Member VEC otomatis berlatar belakang gelap'),
 
     new SlashCommandBuilder()
         .setName('cmd')
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
 
-// Fungsi untuk membuat teks list berdasarkan member yang memiliki role di server
-async function generateVECList(guild) {
+// Fungsi untuk membuat Embed list member
+async function generateVECListEmbed(guild) {
     await guild.members.fetch(); // Memastikan cache member lengkap
 
     const getMembersByRole = (roleId) => {
         const role = guild.roles.cache.get(roleId);
-        if (!role || role.members.size === 0) return '- (Belum ada member)';
+        if (!role || role.members.size === 0) return '- N/A';
         return role.members.map(m => `- ${m}`).join('\n');
     };
 
     const currentDate = new Date().toLocaleDateString('id-ID');
 
-    return (
-        `__**LIST ALL MEMBER VEC**__\n\n` +
+    const descriptionText = 
         `<@&${TRACKED_ROLES.leader}>\n${getMembersByRole(TRACKED_ROLES.leader)}\n\n` +
         `<@&${TRACKED_ROLES.supervisor}>\n${getMembersByRole(TRACKED_ROLES.supervisor)}\n\n` +
         `<@&${TRACKED_ROLES.official}>\n${getMembersByRole(TRACKED_ROLES.official)}\n\n` +
@@ -102,25 +101,28 @@ async function generateVECList(guild) {
         `<@&${TRACKED_ROLES.newbies}>\n${getMembersByRole(TRACKED_ROLES.newbies)}\n\n` +
         `__JOBS MEMBER VEC__\n\n` +
         `<@&${TRACKED_ROLES.photographer}>\n${getMembersByRole(TRACKED_ROLES.photographer)}\n\n` +
-        `Last Updated:\n*${currentDate}*`
-    );
+        `Last Updated:\n*${currentDate}*`;
+
+    return new EmbedBuilder()
+        .setColor('#1a1a1a')
+        .setTitle('LIST ALL MEMBER VEC')
+        .setDescription(descriptionText);
 }
 
-// Fungsi helper untuk memperbarui pesan list di channel target secara otomatis
+// Fungsi helper untuk memperbarui embed list di channel target secara otomatis
 async function updateVECListMessage(guild) {
     try {
         const channel = await guild.channels.fetch(TARGET_CHANNEL_ID);
         if (!channel) return;
 
         const messages = await channel.messages.fetch({ limit: 10 });
-        // Cari pesan terakhir yang dikirim oleh bot untuk di-update isinya
         const botMessage = messages.find(m => m.author.id === client.user.id);
-        const newContent = await generateVECList(guild);
+        const newEmbed = await generateVECListEmbed(guild);
 
         if (botMessage) {
-            await botMessage.edit(newContent);
+            await botMessage.edit({ embeds: [newEmbed] });
         } else {
-            await channel.send(newContent);
+            await channel.send({ embeds: [newEmbed] });
         }
     } catch (error) {
         console.error('Gagal memperbarui list otomatis:', error);
@@ -140,7 +142,6 @@ client.once('ready', async () => {
 
 // Event otomatis saat ada member yang berubah rolenya di server
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
-    // Cek apakah ada perubahan role
     const hasRoleChanged = oldMember.roles.cache.size !== newMember.roles.cache.size ||
         !oldMember.roles.cache.every(role => newMember.roles.cache.has(role.id));
 
@@ -222,7 +223,6 @@ client.on('interactionCreate', async interaction => {
                 .setTimestamp();
 
             await interaction.channel.send({ embeds: [embedRole] });
-            // List otomatis akan ter-update berkat event guildMemberUpdate
         } catch (error) {
             console.error(error);
         }
@@ -261,7 +261,6 @@ client.on('interactionCreate', async interaction => {
                 .setTimestamp();
 
             await interaction.channel.send({ embeds: [embedRemove] });
-            // List otomatis akan ter-update
         } catch (error) {
             console.error(error);
         }
@@ -350,7 +349,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.channel.send({ embeds: embedsList });
     }
 
-    // 6. Logic /setupvlist (Inisialisasi kirim pesan list otomatis pertama kali)
+    // 6. Logic /setupvlist
     if (interaction.commandName === 'setupvlist') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -359,10 +358,10 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply({ ephemeral: true });
         await interaction.deleteReply();
 
-        const content = await generateVECList(interaction.guild);
+        const embedList = await generateVECListEmbed(interaction.guild);
         const channel = await interaction.guild.channels.fetch(TARGET_CHANNEL_ID);
         if (channel) {
-            await channel.send(content);
+            await channel.send({ embeds: [embedList] });
         }
     }
 
@@ -383,7 +382,7 @@ client.on('interactionCreate', async interaction => {
                 `• \`/roleremove\` - Menghapus 1 atau 2 role sekaligus dari member.\n` +
                 `• \`/acc\` - Mengirim hasil review application.\n` +
                 `• \`/teks\` - Kirim pesan estetik multi-embed berselang-seling.\n` +
-                `• \`/setupvlist\` - Inisialisasi list member otomatis.\n` +
+                `• \`/setupvlist\` - Inisialisasi list member otomatis (Embed).\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
@@ -523,4 +522,3 @@ client.on('messageCreate', async message => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-
