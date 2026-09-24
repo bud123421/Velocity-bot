@@ -26,13 +26,12 @@ const TRACKED_ROLES = {
 const commands = [
     new SlashCommandBuilder()
         .setName('logs')
-        .setDescription('Kirim log member baru')
-        .addStringOption(option => option.setName('fullname').setDescription('Nama lengkap member').setRequired(true))
-        .addStringOption(option => option.setName('status').setDescription('Status/pangkat member').setRequired(true))
-        .addStringOption(option => option.setName('reason').setDescription('Alasan log').setRequired(true))
-        .addStringOption(option => option.setName('note').setDescription('Catatan tambahan').setRequired(true))
+        .setDescription('Kirim log member baru (Nama otomatis dari ||)')
         .addUserOption(option => option.setName('member').setDescription('Mention user discord member').setRequired(true))
-        .addRoleOption(option => option.setName('logsto').setDescription('Pilih role tujuan log').setRequired(true)),
+        .addStringOption(option => option.setName('status').setDescription('Status/pangkat member').setRequired(true))
+        .addRoleOption(option => option.setName('logsto').setDescription('Pilih role tujuan log').setRequired(true))
+        .addStringOption(option => option.setName('reason').setDescription('Alasan log').setRequired(true))
+        .addStringOption(option => option.setName('note').setDescription('Catatan tambahan').setRequired(true)),
 
     new SlashCommandBuilder()
         .setName('roleadd')
@@ -75,7 +74,7 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('setupvlist')
-        .setDescription('Kirim panel List Member VEC dengan tombol Update interaktif'),
+        .setDescription('Kirim panel list member dengan tombol Update'),
 
     new SlashCommandBuilder()
         .setName('cmd')
@@ -91,13 +90,11 @@ async function generateVECListPayload(guild) {
         if (!role || role.members.size === 0) return '- N/A';
 
         return role.members.map(m => {
-            const fullName = m.displayName; // Contoh: "V-Newbie || Boris Castelano"
+            const fullName = m.displayName;
             if (fullName.includes('||')) {
-                // Mengambil bagian sebelah kanan dari '||' dan merapikan spasi di depannya
                 const cleanName = fullName.split('||')[1].trim();
                 return `- ${cleanName}`;
             }
-            // Jika tidak ada '||', tampilkan nama aslinya secara utuh
             return `- ${fullName}`;
         }).join('\n');
     };
@@ -160,51 +157,62 @@ client.on('interactionCreate', async interaction => {
 
     if (!interaction.isChatInputCommand()) return;
 
-    // 2. Logic /logs
+    // 2. Logic /logs (Full Name otomatis dari nickname target)
     if (interaction.commandName === 'logs') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
-        await interaction.deferReply({ ephemeral: true });
-        await interaction.deleteReply();
-
-        const fullName = interaction.options.getString('fullname');
         const memberUser = interaction.options.getUser('member');
         const status = interaction.options.getString('status');
         const reason = interaction.options.getString('reason');
         const note = interaction.options.getString('note');
         const logsTo = interaction.options.getRole('logsto');
 
-        const fixedImageUrl = 'https://cdn.discordapp.com/attachments/1533571778897514556/1549804646950768680/file_00000000494481fdaeb69b72f0c375ba-1.jpg?ex=6ab4994d&is=6ab347cd&hm=fc73a31caaf12737c036ac2f9cb1587baa7ec17c386bcb98e1e165a496d5d0d1&';
+        if (!interaction.guild) return;
 
-        const embed = new EmbedBuilder()
-            .setColor('#1a1a1a')
-            .setTitle('VEC LOGS')
-            .setDescription('**LOGS VELOCITY ELITE CLUB**\n' +
-                `> • Full Name: **${fullName}**\n` +
-                `> • Discord: **${memberUser}**\n` +
-                `> • Status: **${status}**\n` +
-                `> • Logs To: **${logsTo}**\n` +
-                `> • Reason: **${reason}**\n` +
-                `> • Note: **${note}**\n\n` +
-                `> • Logs By: **${interaction.user}**`
-            )
-            .setImage(fixedImageUrl)
-            .setFooter({ text: `Signed By ${interaction.user.username}` })
-            .setTimestamp();
+        try {
+            // Mengambil data member server untuk membaca display name target
+            const targetMember = await interaction.guild.members.fetch(memberUser.id);
+            const rawDisplayName = targetMember.displayName;
 
-        await interaction.channel.send({ embeds: [embed] });
+            // Otomatis ambil nama sesudah '||' jika ada, jika tidak pakai nama asli
+            let extractedFullName = rawDisplayName;
+            if (rawDisplayName.includes('||')) {
+                extractedFullName = rawDisplayName.split('||')[1].trim();
+            }
+
+            const fixedImageUrl = 'https://cdn.discordapp.com/attachments/1533571778897514556/1549804646950768680/file_00000000494481fdaeb69b72f0c375ba-1.jpg?ex=6ab4994d&is=6ab347cd&hm=fc73a31caaf12737c036ac2f9cb1587baa7ec17c386bcb98e1e165a496d5d0d1&';
+
+            const embed = new EmbedBuilder()
+                .setColor('#1a1a1a')
+                .setTitle('VEC LOGS')
+                .setDescription('**LOGS VELOCITY ELITE CLUB**\n' +
+                    `> • Full Name: **${extractedFullName}**\n` +
+                    `> • Discord: **${memberUser}**\n` +
+                    `> • Status: **${status}**\n` +
+                    `> • Logs To: **${logsTo}**\n` +
+                    `> • Reason: **${reason}**\n` +
+                    `> • Note: **${note}**\n\n` +
+                    `> • Logs By: **${interaction.user}**`
+                )
+                .setImage(fixedImageUrl)
+                .setFooter({ text: `Signed By ${interaction.user.username}` })
+                .setTimestamp();
+
+            await interaction.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.reply({ content: '❌ Terjadi kesalahan saat memproses log member.', ephemeral: true });
+        }
+        return;
     }
 
-    // 3. Logic /roleadd (Tambah & Hapus Role Sekaligus)
+    // 3. Logic /roleadd
     if (interaction.commandName === 'roleadd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
-
-        await interaction.deferReply({ ephemeral: true });
-        await interaction.deleteReply();
 
         const targetUser = interaction.options.getUser('member');
         const addRole1 = interaction.options.getRole('add_role1');
@@ -235,10 +243,11 @@ client.on('interactionCreate', async interaction => {
                 .setDescription(descText)
                 .setTimestamp();
 
-            await interaction.channel.send({ embeds: [embedRole] });
+            await interaction.reply({ embeds: [embedRole] });
         } catch (error) {
             console.error(error);
         }
+        return;
     }
 
     // 4. Logic /roleremove
@@ -246,9 +255,6 @@ client.on('interactionCreate', async interaction => {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
-
-        await interaction.deferReply({ ephemeral: true });
-        await interaction.deleteReply();
 
         const targetUser = interaction.options.getUser('member');
         const role1 = interaction.options.getRole('role1');
@@ -273,10 +279,11 @@ client.on('interactionCreate', async interaction => {
                 )
                 .setTimestamp();
 
-            await interaction.channel.send({ embeds: [embedRemove] });
+            await interaction.reply({ embeds: [embedRemove] });
         } catch (error) {
             console.error(error);
         }
+        return;
     }
 
     // 5. Logic /acc
@@ -284,9 +291,6 @@ client.on('interactionCreate', async interaction => {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
-
-        await interaction.deferReply({ ephemeral: true });
-        await interaction.deleteReply();
 
         const applicant = interaction.options.getUser('applicant');
         const status = interaction.options.getString('status');
@@ -312,7 +316,8 @@ client.on('interactionCreate', async interaction => {
             .setImage(fixedAccImageUrl)
             .setTimestamp();
 
-        await interaction.channel.send({ embeds: [embedAcc] });
+        await interaction.reply({ embeds: [embedAcc] });
+        return;
     }
 
     // 6. Logic /teks
@@ -320,9 +325,6 @@ client.on('interactionCreate', async interaction => {
         if (!interaction.member.permissions.has('Administrator') && !interaction.member.permissions.has('ManageMessages')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
-
-        await interaction.deferReply({ ephemeral: true });
-        await interaction.deleteReply();
 
         const judulUtama = interaction.options.getString('judul_utama');
         const foto1 = interaction.options.getString('foto_1');
@@ -359,23 +361,23 @@ client.on('interactionCreate', async interaction => {
             }
         }
 
-        await interaction.channel.send({ embeds: embedsList });
+        await interaction.reply({ embeds: embedsList });
+        return;
     }
 
-    // 7. Logic /setupvlist (Kirim panel list dengan tombol Update)
+    // 7. Logic /setupvlist
     if (interaction.commandName === 'setupvlist') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
-
-        await interaction.deferReply({ ephemeral: true });
-        await interaction.deleteReply();
 
         const payload = await generateVECListPayload(interaction.guild);
         const channel = await interaction.guild.channels.fetch(TARGET_CHANNEL_ID);
         if (channel) {
             await channel.send(payload);
         }
+        await interaction.reply({ content: '✅ Panel list berhasil dikirim ke channel target!', ephemeral: true });
+        return;
     }
 
     // 8. Logic /cmd (Publik)
@@ -390,7 +392,7 @@ client.on('interactionCreate', async interaction => {
             .setDescription(
                 `Berikut adalah daftar perintah bot yang tersedia untuk Staff/Admin:\n\n` +
                 `**🔹 Slash Commands (/):**\n` +
-                `• \`/logs\` - Mengirim log data member baru.\n` +
+                `• \`/logs\` - Mengirim log data (Full Name otomatis).\n` +
                 `• \`/roleadd\` - Tambah & hapus role sekaligus (Tukar Pangkat).\n` +
                 `• \`/roleremove\` - Menghapus role dari member.\n` +
                 `• \`/acc\` - Mengirim hasil review application.\n` +
@@ -407,6 +409,7 @@ client.on('interactionCreate', async interaction => {
             .setTimestamp();
 
         await interaction.reply({ embeds: [embedList] });
+        return;
     }
 });
 
