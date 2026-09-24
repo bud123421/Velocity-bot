@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 const client = new Client({ 
     intents: [
@@ -58,6 +58,10 @@ const commands = [
         .addStringOption(option => option.setName('foto_5').setDescription('Link foto ke-5 (opsional)').setRequired(false)),
 
     new SlashCommandBuilder()
+        .setName('vlist')
+        .setDescription('Kirim panel List All Member VEC dengan tombol interaktif'),
+
+    new SlashCommandBuilder()
         .setName('cmd')
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
@@ -74,6 +78,13 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
+    if (interaction.isButton()) {
+        if (interaction.customId === 'update_vec_list') {
+            await interaction.reply({ content: '🔁 Fitur update list via tombol sedang disiapkan!', ephemeral: true });
+        }
+        return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     // 1. Logic /logs
@@ -272,7 +283,40 @@ client.on('interactionCreate', async interaction => {
         await interaction.channel.send({ embeds: embedsList });
     }
 
-    // 6. Logic /cmd (Publik - Bisa dilihat semua orang)
+    // 6. Logic /vlist
+    if (interaction.commandName === 'vlist') {
+        if (!interaction.member.permissions.has('ManageRoles')) {
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+        }
+
+        const currentDate = new Date().toLocaleDateString('id-ID');
+
+        const listContent = 
+            `__**LIST ALL MEMBER VEC**__\n\n` +
+            `<@&1533476290424996082>\n- \n\n` +
+            `<@&1533476290395504797>\n- \n\n` +
+            `<@&1546864217074831430>\n- \n\n` +
+            `<@&1533476290370207884>\n- \n\n` +
+            `<@&1533476290395504799>\n- \n\n` +
+            `<@&1533476290403762326>\n-  \n\n` +
+            `__JOBS MEMBER VEC__\n\n` +
+            `<@&1546529871641976942>\n- \n\n` +
+            `Last Updated:\n*${currentDate}*`;
+
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('update_vec_list')
+                    .setLabel('Update List')
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji('🔁')
+            );
+
+        await interaction.channel.send({ content: listContent, components: [row] });
+        await interaction.reply({ content: '✅ List Member VEC berhasil dikirim!', ephemeral: true });
+    }
+
+    // 7. Logic /cmd (Publik)
     if (interaction.commandName === 'cmd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -289,6 +333,7 @@ client.on('interactionCreate', async interaction => {
                 `• \`/roleremove\` - Menghapus 1 atau 2 role sekaligus dari member.\n` +
                 `• \`/acc\` - Mengirim hasil review application.\n` +
                 `• \`/teks\` - Kirim pesan estetik multi-embed berselang-seling.\n` +
+                `• \`/vlist\` - Kirim panel List Member VEC.\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
@@ -299,7 +344,6 @@ client.on('interactionCreate', async interaction => {
             .setFooter({ text: `Requested by ${interaction.user.username}` })
             .setTimestamp();
 
-        // Mengirim pesan secara publik ke channel
         await interaction.reply({ embeds: [embedList] });
     }
 });
