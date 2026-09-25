@@ -23,7 +23,7 @@ const TRACKED_ROLES = {
     photographer: '1546529871641976942' // Jobs
 };
 
-// Penyimpanan sementara untuk event balap (menyimpan nomor yang sudah diambil)
+// Penyimpanan sementara untuk event balap
 const racingEvents = new Map();
 
 const commands = [
@@ -65,14 +65,14 @@ const commands = [
         .setName('teks')
         .setDescription('Kirim pesan estetik berselang-seling foto & deskripsi')
         .addStringOption(option => option.setName('judul_utama').setDescription('Judul utama / teks pertama').setRequired(true))
-        .addStringOption(option => option.setName('foto_1').setDescription('Link foto utama (wajib)').setRequired(true))
         .addStringOption(option => option.setName('deskripsi_1').setDescription('Deskripsi ke-1 (opsional)').setRequired(false))
-        .addStringOption(option => option.setName('foto_2').setDescription('Link foto ke-2 (opsional)').setRequired(false))
         .addStringOption(option => option.setName('deskripsi_2').setDescription('Deskripsi ke-2 (opsional)').setRequired(false))
-        .addStringOption(option => option.setName('foto_3').setDescription('Link foto ke-3 (opsional)').setRequired(false))
         .addStringOption(option => option.setName('deskripsi_3').setDescription('Deskripsi ke-3 (opsional)').setRequired(false))
-        .addStringOption(option => option.setName('foto_4').setDescription('Link foto ke-4 (opsional)').setRequired(false))
         .addStringOption(option => option.setName('deskripsi_4').setDescription('Deskripsi ke-4 (opsional)').setRequired(false))
+        .addStringOption(option => option.setName('foto_1').setDescription('Link foto utama (opsional)').setRequired(false))
+        .addStringOption(option => option.setName('foto_2').setDescription('Link foto ke-2 (opsional)').setRequired(false))
+        .addStringOption(option => option.setName('foto_3').setDescription('Link foto ke-3 (opsional)').setRequired(false))
+        .addStringOption(option => option.setName('foto_4').setDescription('Link foto ke-4 (opsional)').setRequired(false))
         .addStringOption(option => option.setName('foto_5').setDescription('Link foto ke-5 (opsional)').setRequired(false)),
 
     new SlashCommandBuilder()
@@ -116,7 +116,7 @@ async function generateVECListPayload(guild) {
         `<@&${TRACKED_ROLES.senior}>\n${getMembersByRole(TRACKED_ROLES.senior)}\n\n` +
         `<@&${TRACKED_ROLES.junior}>\n${getMembersByRole(TRACKED_ROLES.junior)}\n\n` +
         `<@&${TRACKED_ROLES.newbies}>\n${getMembersByRole(TRACKED_ROLES.newbies)}\n\n` +
-        `__JOBS MEMBER_VEC__\n\n` +
+        `__JOBS MEMBER VEC__\n\n` +
         `<@&${TRACKED_ROLES.photographer}>\n${getMembersByRole(TRACKED_ROLES.photographer)}\n\n` +
         `Last Updated:\n*${currentDate}*`;
 
@@ -148,7 +148,7 @@ client.once('ready', async () => {
     }
 });
 
-client.on('interactionCreate', async interaction => {
+client.interactionCreate = client.on('interactionCreate', async interaction => {
     // 1. Handle Klik Tombol (Update List atau Ambil Posisi Balap)
     if (interaction.isButton()) {
         if (interaction.customId === 'btn_update_vlist') {
@@ -162,38 +162,35 @@ client.on('interactionCreate', async interaction => {
         } 
         else if (interaction.customId === 'btn_ambil_posisi') {
             const messageId = interaction.message.id;
-            const eventData = racingEvents.get(messageId);
+            let eventData = racingEvents.get(messageId);
 
+            // Pemulihan otomatis jika memori bot sempat restart
             if (!eventData) {
-                return interaction.reply({ content: '❌ Sesi undian posisi balap ini sudah berakhir atau tidak ditemukan!', ephemeral: true });
+                const defaultNumbers = Array.from({ length: 15 }, (_, i) => i + 1);
+                racingEvents.set(messageId, {
+                    maxPosisi: 15,
+                    availableNumbers: defaultNumbers,
+                    results: new Map()
+                });
+                eventData = racingEvents.get(messageId);
             }
 
             const userId = interaction.user.id;
 
-            // Cek apakah user sudah pernah mengambil nomor
             if (eventData.results.has(userId)) {
                 return interaction.reply({ content: `⚠️ Kamu sudah mendapatkan **Posisi Grid #${eventData.results.get(userId)}**!`, ephemeral: true });
             }
 
-            // Cek apakah nomor undian masih tersedia
             if (eventData.availableNumbers.length === 0) {
                 return interaction.reply({ content: '❌ Maaf, semua posisi grid sudah habis diambil!', ephemeral: true });
             }
 
-            // Ambil nomor secara acak dari sisa nomor yang ada
             const randomIndex = Math.floor(Math.random() * eventData.availableNumbers.length);
             const assignedNumber = eventData.availableNumbers.splice(randomIndex, 1)[0];
 
-            // Ambil nama bersih peserta setelah '||'
-            const rawDisplayName = interaction.member.displayName;
-            const cleanName = rawDisplayName.includes('||') ? rawDisplayName.split('||')[1].trim() : rawDisplayName;
-
-            // Simpan hasil
             eventData.results.set(userId, assignedNumber);
 
-            // Susun ulang daftar hasil sementara
             let resultsText = '';
-            // Urutkan berdasarkan nomor posisi terkecil ke terbesar
             const sortedResults = [...eventData.results.entries()].sort((a, b) => a[1] - b[1]);
             
             for (const [uId, pos] of sortedResults) {
@@ -206,10 +203,9 @@ client.on('interactionCreate', async interaction => {
 
             if (!resultsText) resultsText = '_Belum ada yang mengambil posisi._';
 
-            // Update tampilan embed balapan
             const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
                 .setFields([
-                    { name: '🏁 Status Undian', value: `Sisa posisi tersedia: **${eventData.availableNumbers.length}** dari ${eventData.maxPosisi}`, inline: false },
+                    { name: '🏁 Status Undian', value: `Sisa posisi tersedia: **${eventData.availableNumbers.length}**`, inline: false },
                     { name: '📋 Daftar Posisi Grid Sementara', value: resultsText, inline: false }
                 ]);
 
@@ -381,7 +377,7 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // 6. Logic /teks (Murni teks tanpa pemisah gambar)
+    // 6. Logic /teks (Slash Command /teks)
     if (interaction.commandName === 'teks') {
         if (!interaction.member.permissions.has('Administrator') && !interaction.member.permissions.has('ManageMessages')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -441,7 +437,7 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // 8. Logic /setposisi (Membuat Event Undian Grid Balap MotoGP)
+    // 8. Logic /setposisi
     if (interaction.commandName === 'setposisi') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -453,7 +449,6 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ content: '❌ Masukkan angka posisi antara 1 sampai 50!', ephemeral: true });
         }
 
-        // Buat array nomor posisi dari 1 sampai maxPosisi
         const availableNumbers = Array.from({ length: maxPosisi }, (_, i) => i + 1);
 
         const embed = new EmbedBuilder()
@@ -461,7 +456,7 @@ client.on('interactionCreate', async interaction => {
             .setTitle('🏁 VEC RACING TOURNAMENT - QUALIFYING')
             .setDescription('Silakan klik tombol **"Ambil Posisi Grid"** di bawah ini untuk mendapatkan nomor urutan barisan balap secara acak!')
             .addFields(
-                { name: '🏁 Status Undian', value: `Sisa posisi tersedia: **${maxPosisi}** dari ${maxPosisi}`, inline: false },
+                { name: '🏁 Status Undian', value: `Sisa posisi tersedia: **${maxPosisi}**`, inline: false },
                 { name: '📋 Daftar Posisi Grid Sementara', value: '_Belum ada yang mengambil posisi._', inline: false }
             )
             .setFooter({ text: `Dibuat oleh ${interaction.user.username}` })
@@ -476,14 +471,12 @@ client.on('interactionCreate', async interaction => {
                     .setEmoji('🏎️')
             );
 
-        // Kirim pesan panel undian
         const sentMessage = await interaction.channel.send({ embeds: [embed], components: [row] });
 
-        // Daftarkan sesi ke dalam memory bot
         racingEvents.set(sentMessage.id, {
             maxPosisi: maxPosisi,
             availableNumbers: availableNumbers,
-            results: new Map() // Menyimpan pasangan userId -> nomor posisi
+            results: new Map()
         });
 
         await interaction.reply({ content: '✅ Panel undian posisi balap berhasil dibuat!', ephemeral: true });
@@ -506,14 +499,14 @@ client.on('interactionCreate', async interaction => {
                 `• \`/roleadd\` - Tambah & hapus role sekaligus (Tukar Pangkat).\n` +
                 `• \`/roleremove\` - Menghapus role dari member.\n` +
                 `• \`/acc\` - Mengirim hasil review application.\n` +
-                `• \`/teks\` - Kirim pesan teks estetik (tanpa pemisah gambar).\n` +
+                `• \`/teks\` - Kirim pesan teks estetik.\n` +
                 `• \`/setupvlist\` - Kirim panel list member dengan tombol Update.\n` +
                 `• \`/setposisi [angka]\` - Buat undian posisi grid balap.\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
                 `• \`!lock\` atau \`!L\` - Mengunci channel atau thread.\n` +
-                `• \`!teks [Teks Anda]\` - Kirim teks via chat.\n` +
+                `• \`!teks [Teks Anda]\` - Kirim teks murni via chat.\n` +
                 `• \`!clear [jumlah]\` - Menghapus pesan chat secara massal.`
             )
             .setFooter({ text: `Requested by ${interaction.user.username}` })
@@ -554,10 +547,6 @@ client.on('messageCreate', async message => {
         } catch (error) {
             console.error(error);
         }
-    }
-
-    if (message.content === '!lock' || message.content === !L) { // Diperbaiki dari !L ke message.content === '!lock' || message.content === '!L'
-        // Skip karena sudah aman
     }
 
     if (message.content === '!lock' || message.content === '!L') {
