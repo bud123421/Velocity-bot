@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 const client = new Client({ 
     intents: [
@@ -14,6 +14,7 @@ const LOGS_CHANNEL_ID = '1533476291230171192';
 
 const CIVILIAN_ROLE_ID = '1533476290445709493';
 const NEWBIES_ROLE_ID = '1533476290403762326';
+const MEMBER_ROLE_ID = '1533476290403762323'; // Role khusus Memberlist & Absensi
 
 const TRACKED_ROLES = {
     leader: '1533476290424996082',
@@ -27,6 +28,7 @@ const TRACKED_ROLES = {
 
 const racingEvents = new Map();
 const activeGiveaways = new Map();
+const activeAbsensi = new Map(); // Penyimpanan data absensi
 
 const commands = [
     new SlashCommandBuilder()
@@ -48,7 +50,7 @@ const commands = [
         .addRoleOption(option => option.setName('remove_role2').setDescription('Role lama kedua yang ingin dicopot (opsional)').setRequired(false)),
 
     new SlashCommandBuilder()
-        .setName('roleremove')
+        .setName('unrole')
         .setDescription('Menghapus 1 atau 2 role sekaligus dari member')
         .addUserOption(option => option.setName('member').setDescription('Pilih member target').setRequired(true))
         .addRoleOption(option => option.setName('role1').setDescription('Role pertama yang ingin dihapus').setRequired(true))
@@ -92,6 +94,15 @@ const commands = [
         .addStringOption(option => option.setName('hadiah').setDescription('Nama hadiah yang dibagikan').setRequired(true))
         .addIntegerOption(option => option.setName('pemenang').setDescription('Jumlah pemenang').setRequired(true))
         .addIntegerOption(option => option.setName('durasi').setDescription('Durasi waktu dalam menit').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('memberlist')
+        .setDescription('Menampilkan daftar nama dan total member VEC'),
+
+    new SlashCommandBuilder()
+        .setName('absensi')
+        .setDescription('Buat panel absensi member interaktif')
+        .addStringOption(option => option.setName('keterangan').setDescription('Keterangan / judul absensi').setRequired(true)),
 
     new SlashCommandBuilder()
         .setName('cmd')
@@ -254,7 +265,69 @@ client.on('interactionCreate', async interaction => {
                 return interaction.reply({ content: '🎉 Berhasil! Kamu telah terdaftar dalam giveaway ini.', ephemeral: true });
             }
         }
+        else if (interaction.customId === 'btn_open_absensi') {
+            // Cek apakah user memiliki role member (1533476290403762323)
+            const hasMemberRole = interaction.member.roles.cache.has(MEMBER_ROLE_ID);
+            if (!hasMemberRole && !interaction.member.permissions.has('ManageRoles')) {
+                return interaction.reply({ content: '❌ Absen ini khusus untuk member VEC!', ephemeral: true });
+            }
+
+            // Munculkan Modal Pop-up untuk mengisi nomor absen
+            const modal = new ModalBuilder()
+                .setCustomId(`modal_absensi_${interaction.message.id}`)
+                .setTitle('VEC Member Absensi');
+
+            const absenInput = new TextInputBuilder()
+                .setCustomId('input_no_absen')
+                .setLabel('Masukkan Nomor Absen Anda (Contoh: 3)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            modal.addComponents(new ActionRowBuilder().addComponents(absenInput));
+            await interaction.showModal(modal);
+        }
         return;
+    }
+
+    // Handle Modal Submit Absensi
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId.startsWith('modal_absensi_')) {
+            const messageId = interaction.customId.replace('modal_absensi_', '');
+            const absenData = activeAbsensi.get(messageId);
+
+            if (!absenData) {
+                return interaction.reply({ content: '❌ Sesi absensi ini sudah tidak ditemukan!', ephemeral: true });
+            }
+
+            const noAbsen = interaction.fields.getTextInputValue('input_no_absen').trim();
+            const userId = interaction.user.id;
+
+            // Ambil nama bersih setelah '||'
+            const rawDisplayName = interaction.member.displayName;
+            const cleanName = rawDisplayName.includes('||') ? rawDisplayName.split('||')[1].trim() : rawDisplayName;
+
+            // Simpan atau perbarui absen user
+            absenData.absensiMap.set(userId, { name: cleanName, number: noAbsen, userObj: interaction.user });
+
+            // Susun ulang teks list absen
+            let listText = `__**ABSENSI MEMBER VELOCITY ELITE CLUB**__\n`;
+            listText += `📌 **Keterangan:** ${absenData.keterangan}\n\n`;
+
+            const sortedAbsen = [...absenData.absensiMap.values()].sort((a, b) => parseInt(a.number) - parseInt(b.number));
+            for (const item of sortedAbsen) {
+                listText += `> - ${item.name} [${item.number}]\n`;
+            }
+
+            listText += `\n__**TOTAL HADIR : ${sortedAbsen.length}**__\n`;
+            listText += `*Last Update ${new Date().toLocaleDateString('id-ID')}*`;
+
+            // Update embed panel absensi
+            const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+                .setDescription(listText);
+
+            await interaction.update({ embeds: [updatedEmbed] });
+            return;
+        }
     }
 
     if (!interaction.isChatInputCommand()) return;
@@ -348,7 +421,8 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    if (interaction.commandName === 'roleremove') {
+    // Ganti /roleremove menjadi /unrole
+    if (interaction.commandName === 'unrole') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
@@ -570,15 +644,15 @@ client.on('interactionCreate', async interaction => {
             gwData.active = false;
             const participantsArray = [...gwData.participants];
 
-            let winnerText = '';
+            let winnerMentions = '';
             if (participantsArray.length === 0) {
-                winnerText = '_Tidak ada peserta yang mengikuti giveaway._';
+                winnerMentions = '_Tidak ada peserta yang mengikuti giveaway._';
             } else {
                 const shuffled = participantsArray.sort(() => 0.5 - Math.random());
                 const winners = shuffled.slice(0, gwData.winnersCount);
 
                 for (const wId of winners) {
-                    winnerText += `• <@${wId}>\n`;
+                    winnerMentions += `<@${wId}> `;
                 }
             }
 
@@ -587,7 +661,7 @@ client.on('interactionCreate', async interaction => {
                 .setTitle('🎉 VEC GIVEAWAY - BERAKHIR 🎉')
                 .setDescription(
                     `🎁 **Hadiah:** ${hadiah}\n\n` +
-                    `👑 **Pemenang Terpilih:**\n${winnerText}`
+                    `👑 **Pemenang Terpilih:**\n${winnerMentions}`
                 )
                 .setTimestamp();
 
@@ -601,9 +675,81 @@ client.on('interactionCreate', async interaction => {
                 );
 
             await sentMessage.edit({ embeds: [endedEmbed], components: [disabledRow] });
-            await sentMessage.reply(`🎊 Selamat kepada pemenang giveaway **${hadiah}**!`).catch(() => {});
+            
+            // Pemenang di-tag langsung via pesan teks biasa (tanpa background hitam/embed)
+            await interaction.channel.send(`🎊 Selamat kepada ${winnerMentions} telah memenangkan **${hadiah}**!`);
         }, durasiMenit * 60 * 1000);
 
+        return;
+    }
+
+    // Command: /memberlist
+    if (interaction.commandName === 'memberlist') {
+        await interaction.guild.members.fetch({ force: true });
+        const role = interaction.guild.roles.cache.get(MEMBER_ROLE_ID);
+
+        if (!role || role.members.size === 0) {
+            return interaction.reply({ content: '❌ Tidak ada member yang ditemukan dengan role tersebut.', ephemeral: true });
+        }
+
+        const memberLines = role.members.map(m => {
+            const fullName = m.displayName;
+            if (fullName.includes('||')) {
+                return `> - ${fullName.split('||')[1].trim()}`;
+            }
+            return `> - ${fullName}`;
+        }).join('\n');
+
+        const totalCount = role.members.size;
+        const currentDate = new Date().toLocaleDateString('id-ID');
+
+        const resultText = 
+            `__**LIST MEMBER VELOCITY ELITE CLUB**__\n` +
+            `${memberLines}\n\n` +
+            `__**ALL MEMBER LIST : ${totalCount}**__\n` +
+            `*Last Update ${currentDate}*`;
+
+        await interaction.reply({ content: resultText });
+        return;
+    }
+
+    // Command: /absensi
+    if (interaction.commandName === 'absensi') {
+        if (!interaction.member.permissions.has('ManageRoles')) {
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+        }
+
+        const keterangan = interaction.options.getString('keterangan');
+
+        const embedAbsen = new EmbedBuilder()
+            .setColor('#1a1a1a')
+            .setTitle('📋 VEC ABSENSI MEMBER')
+            .setDescription(
+                `__**ABSENSI MEMBER VELOCITY ELITE CLUB**__\n` +
+                `📌 **Keterangan:** ${keterangan}\n\n` +
+                `_Belum ada member yang melakukan absensi._\n\n` +
+                `__**TOTAL HADIR : 0**__\n` +
+                `*Last Update ${new Date().toLocaleDateString('id-ID')}*`
+            )
+            .setTimestamp();
+
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('btn_open_absensi')
+                    .setLabel('Absen Sekarang')
+                    .setStyle(ButtonStyle.Success)
+                    .setEmoji('📝')
+            );
+
+        const sentMessage = await interaction.channel.send({ embeds: [embedAbsen], components: [row] });
+
+        activeAbsensi.set(sentMessage.id, {
+            keterangan: keterangan,
+            absensiMap: new Map()
+        });
+
+        await interaction.reply({ content: '✅ Panel absensi berhasil dibuat!', ephemeral: true });
         return;
     }
 
@@ -620,12 +766,14 @@ client.on('interactionCreate', async interaction => {
                 `**🔹 Slash Commands (/):**\n` +
                 `• \`/logs\` - Kirim log data (Nama otomatis dari ||).\n` +
                 `• \`/roleadd\` - Tambah & hapus role sekaligus (Tukar Pangkat).\n` +
-                `• \`/roleremove\` - Menghapus role dari member.\n` +
+                `• \`/unrole\` - Menghapus role dari member.\n` +
                 `• \`/acc\` - Mengirim hasil review application.\n` +
                 `• \`/teks\` - Kirim pesan teks estetik.\n` +
                 `• \`/setupvlist\` - Kirim panel list member dengan tombol Update.\n` +
                 `• \`/setposisi [angka]\` - Buat undian posisi grid balap.\n` +
                 `• \`/giveaway [hadiah] [pemenang] [menit]\` - Mulai giveaway.\n` +
+                `• \`/memberlist\` - Menampilkan daftar nama & total member.\n` +
+                `• \`/absensi [keterangan]\` - Buat panel absensi interaktif.\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!logs @User\` - Kirim log member baru otomatis ke channel logs.\n` +
