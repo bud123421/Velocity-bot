@@ -14,7 +14,7 @@ const LOGS_CHANNEL_ID = '1533476291230171192';
 
 const CIVILIAN_ROLE_ID = '1533476290445709493';
 const NEWBIES_ROLE_ID = '1533476290403762326';
-const MEMBER_ROLE_ID = '1533476290403762323'; // Role khusus Memberlist & Absensi
+const MEMBER_ROLE_ID = '1533476290403762323';
 
 const TRACKED_ROLES = {
     leader: '1533476290424996082',
@@ -28,7 +28,7 @@ const TRACKED_ROLES = {
 
 const racingEvents = new Map();
 const activeGiveaways = new Map();
-const activeAbsensi = new Map(); // Menyimpan data absensi per pesan panel
+const activeAbsensi = new Map();
 
 const commands = [
     new SlashCommandBuilder()
@@ -108,7 +108,6 @@ const commands = [
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
 
-// Fungsi untuk membuat payload list member
 async function generateVECListPayload(guild) {
     await guild.members.fetch({ force: true });
 
@@ -156,7 +155,6 @@ async function generateVECListPayload(guild) {
     return { embeds: [embed], components: [row] };
 }
 
-// Fungsi untuk membangun teks absensi berdasarkan role member
 async function generateAbsensiText(guild, absenPointsMap) {
     await guild.members.fetch({ force: true });
     const role = guild.roles.cache.get(MEMBER_ROLE_ID);
@@ -168,7 +166,6 @@ async function generateAbsensiText(guild, absenPointsMap) {
     const membersArray = [...role.members.values()];
     
     let listLines = '';
-    let index = 1;
 
     for (const m of membersArray) {
         const fullName = m.displayName;
@@ -176,8 +173,7 @@ async function generateAbsensiText(guild, absenPointsMap) {
         
         const points = absenPointsMap.get(m.id) || 0;
 
-        listLines += `> ${index}. ${cleanName} [${points}]\n`;
-        index++;
+        listLines += `> - ${cleanName} [${points}]\n`;
     }
 
     const totalCount = membersArray.length;
@@ -314,10 +310,11 @@ client.on('interactionCreate', async interaction => {
                 .setCustomId(`modal_set_absen_${interaction.message.id}`)
                 .setTitle('Set Poin Absensi Member');
 
-            const indexInput = new TextInputBuilder()
-                .setCustomId('input_index')
-                .setLabel('Nomor List Member (Contoh: 1)')
+            const mentionInput = new TextInputBuilder()
+                .setCustomId('input_mention')
+                .setLabel('Mention Member (Contoh: @Boris)')
                 .setStyle(TextInputStyle.Short)
+                .setPlaceholder('@NamaMember atau User ID')
                 .setRequired(true);
 
             const pointsInput = new TextInputBuilder()
@@ -327,7 +324,7 @@ client.on('interactionCreate', async interaction => {
                 .setRequired(true);
 
             modal.addComponents(
-                new ActionRowBuilder().addComponents(indexInput),
+                new ActionRowBuilder().addComponents(mentionInput),
                 new ActionRowBuilder().addComponents(pointsInput)
             );
 
@@ -352,7 +349,6 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.isModalSubmit()) {
         if (interaction.customId.startsWith('modal_set_absen_')) {
-            // Beritahu Discord agar tidak timeout
             await interaction.deferReply({ ephemeral: true });
 
             const messageId = interaction.customId.replace('modal_set_absen_', '');
@@ -362,22 +358,33 @@ client.on('interactionCreate', async interaction => {
             }
             const absenData = activeAbsensi.get(messageId);
 
-            const targetIndex = parseInt(interaction.fields.getTextInputValue('input_index').trim());
+            const rawInput = interaction.fields.getTextInputValue('input_mention').trim();
             const newPoints = parseInt(interaction.fields.getTextInputValue('input_points').trim());
 
-            if (isNaN(targetIndex) || isNaN(newPoints)) {
-                return interaction.editReply({ content: '❌ Masukkan angka yang valid untuk nomor list dan poin!' });
+            if (isNaN(newPoints)) {
+                return interaction.editReply({ content: '❌ Masukkan jumlah angka poin yang valid!' });
             }
+
+            let targetUserId = rawInput.replace(/[^0-9]/g, '');
 
             await interaction.guild.members.fetch({ force: true });
-            const role = interaction.guild.roles.cache.get(MEMBER_ROLE_ID);
-            const membersArray = role ? [...role.members.values()] : [];
+            let targetMember = null;
 
-            if (targetIndex < 1 || targetIndex > membersArray.length) {
-                return interaction.editReply({ content: `❌ Nomor list tidak valid! Pilih antara 1 sampai ${membersArray.length}.` });
+            if (targetUserId) {
+                targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
             }
 
-            const targetMember = membersArray[targetIndex - 1];
+            if (!targetMember) {
+                targetMember = interaction.guild.members.cache.find(m => 
+                    m.user.username.toLowerCase() === rawInput.toLowerCase() ||
+                    m.displayName.toLowerCase().includes(rawInput.toLowerCase())
+                );
+            }
+
+            if (!targetMember) {
+                return interaction.editReply({ content: `❌ Member dengan input "${rawInput}" tidak ditemukan! Pastikan melakukan mention yang benar (contoh: @NamaUser).` });
+            }
+
             absenData.pointsMap.set(targetMember.id, newPoints);
 
             const { text } = await generateAbsensiText(interaction.guild, absenData.pointsMap);
@@ -386,7 +393,8 @@ client.on('interactionCreate', async interaction => {
                 .setDescription(text);
 
             await interaction.message.edit({ embeds: [updatedEmbed] });
-            await interaction.editReply({ content: `✅ Berhasil mengatur poin absen untuk nomor list **${targetIndex}** menjadi **[${newPoints}]**!` });
+            const cleanTargetName = targetMember.displayName.includes('||') ? targetMember.displayName.split('||')[1].trim() : targetMember.displayName;
+            await interaction.editReply({ content: `✅ Berhasil mengatur poin absen untuk **${cleanTargetName}** menjadi **[${newPoints}]**!` });
             return;
         }
     }
