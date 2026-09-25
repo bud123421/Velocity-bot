@@ -12,6 +12,13 @@ const client = new Client({
 // ID Channel tempat list otomatis akan dikirim/di-update
 const TARGET_CHANNEL_ID = '1533476292064706652';
 
+// ID Channel khusus untuk Logs Member Baru
+const LOGS_CHANNEL_ID = '1533476291230171192';
+
+// ID Role Default untuk Command !logs
+const CIVILIAN_ROLE_ID = '1533476290445709493';
+const NEWBIES_ROLE_ID = '1533476290403762326';
+
 // Daftar ID Role yang akan dilacak oleh bot
 const TRACKED_ROLES = {
     leader: '1533476290424996082',
@@ -148,7 +155,7 @@ client.once('ready', async () => {
     }
 });
 
-client.interactionCreate = client.on('interactionCreate', async interaction => {
+client.on('interactionCreate', async interaction => {
     // 1. Handle Klik Tombol (Update List atau Ambil Posisi Balap)
     if (interaction.isButton()) {
         if (interaction.customId === 'btn_update_vlist') {
@@ -164,7 +171,6 @@ client.interactionCreate = client.on('interactionCreate', async interaction => {
             const messageId = interaction.message.id;
             let eventData = racingEvents.get(messageId);
 
-            // Pemulihan otomatis jika memori bot sempat restart
             if (!eventData) {
                 const defaultNumbers = Array.from({ length: 15 }, (_, i) => i + 1);
                 racingEvents.set(messageId, {
@@ -377,7 +383,7 @@ client.interactionCreate = client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // 6. Logic /teks (Slash Command /teks)
+    // 6. Logic /teks
     if (interaction.commandName === 'teks') {
         if (!interaction.member.permissions.has('Administrator') && !interaction.member.permissions.has('ManageMessages')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -504,6 +510,7 @@ client.interactionCreate = client.on('interactionCreate', async interaction => {
                 `• \`/setposisi [angka]\` - Buat undian posisi grid balap.\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
+                `• \`!logs @User\` - Kirim log member baru otomatis ke channel logs.\n` +
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
                 `• \`!lock\` atau \`!L\` - Mengunci channel atau thread.\n` +
                 `• \`!teks [Teks Anda]\` - Kirim teks murni via chat.\n` +
@@ -517,9 +524,59 @@ client.interactionCreate = client.on('interactionCreate', async interaction => {
     }
 });
 
-// Text Commands (!setnick, !lock, !teks, dan !clear)
+// Text Commands (!logs, !setnick, !lock, !teks, dan !clear)
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
+
+    // Command: !logs @mention (Otomatis kirim log ke channel logs)
+    if (message.content.startsWith('!logs')) {
+        if (!message.member.permissions.has('ManageRoles')) return;
+
+        const targetUser = message.mentions.users.first();
+        if (!targetUser) {
+            return message.reply('❌ Format salah! Contoh: `!logs @User`').then(msg => {
+                setTimeout(() => msg.delete().catch(() => {}), 4000);
+            });
+        }
+
+        try {
+            await message.delete().catch(() => {});
+
+            const targetMember = await message.guild.members.fetch(targetUser.id);
+            const rawDisplayName = targetMember.displayName;
+
+            let extractedFullName = rawDisplayName;
+            if (rawDisplayName.includes('||')) {
+                extractedFullName = rawDisplayName.split('||')[1].trim();
+            }
+
+            const fixedImageUrl = 'https://cdn.discordapp.com/attachments/1533571778897514556/1549804646950768680/file_00000000494481fdaeb69b72f0c375ba-1.jpg?ex=6ab4994d&is=6ab347cd&hm=fc73a31caaf12737c036ac2f9cb1587baa7ec17c386bcb98e1e165a496d5d0d1&';
+
+            const embedLogs = new EmbedBuilder()
+                .setColor('#1a1a1a')
+                .setTitle('VEC LOGS')
+                .setDescription('**LOGS VELOCITY ELITE CLUB**\n' +
+                    `> • Full Name: **${extractedFullName}**\n` +
+                    `> • Discord: **${targetUser}**\n` +
+                    `> • Status: **<@&${CIVILIAN_ROLE_ID}>**\n` +
+                    `> • Logs To: **<@&${NEWBIES_ROLE_ID}>**\n` +
+                    `> • Reason: **joined community**\n` +
+                    `> • Note: **sering" act ssrp**\n\n` +
+                    `> • Logs By: **${message.author}**`
+                )
+                .setImage(fixedImageUrl)
+                .setFooter({ text: `Signed By ${message.author.username}` })
+                .setTimestamp();
+
+            const logsChannel = await message.guild.channels.fetch(LOGS_CHANNEL_ID);
+            if (logsChannel) {
+                await logsChannel.send({ embeds: [embedLogs] });
+            }
+        } catch (error) {
+            console.error(error);
+        }
+        return;
+    }
 
     if (message.content.startsWith('!setnick')) {
         if (!message.member.permissions.has('ManageNicknames')) return;
