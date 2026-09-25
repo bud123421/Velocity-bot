@@ -28,7 +28,7 @@ const TRACKED_ROLES = {
 
 const racingEvents = new Map();
 const activeGiveaways = new Map();
-const activeAbsensi = new Map(); // Penyimpanan data absensi
+const activeAbsensi = new Map(); // Menyimpan data absensi per pesan panel
 
 const commands = [
     new SlashCommandBuilder()
@@ -101,14 +101,14 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('absensi')
-        .setDescription('Buat panel absensi member interaktif')
-        .addStringOption(option => option.setName('keterangan').setDescription('Keterangan / judul absensi').setRequired(true)),
+        .setDescription('Buat panel absensi member interaktif'),
 
     new SlashCommandBuilder()
         .setName('cmd')
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
 
+// Fungsi untuk membuat payload list member
 async function generateVECListPayload(guild) {
     await guild.members.fetch({ force: true });
 
@@ -154,6 +154,44 @@ async function generateVECListPayload(guild) {
         );
 
     return { embeds: [embed], components: [row] };
+}
+
+// Fungsi untuk membangun teks absensi berdasarkan role member
+async function generateAbsensiText(guild, absenPointsMap) {
+    await guild.members.fetch({ force: true });
+    const role = guild.roles.cache.get(MEMBER_ROLE_ID);
+
+    if (!role || role.members.size === 0) {
+        return { text: '__**LIST ABSENSI VELOCITY ELITE CLUB**__\n\n_Tidak ada member._\n\n__**ALL MEMBER LIST : 0**__\n*Last Update ' + new Date().toLocaleDateString('id-ID') + '*', total: 0 };
+    }
+
+    // Ubah collection member menjadi array dan urutkan abjad atau sesuai keinginan
+    const membersArray = [...role.members.values()];
+    
+    let listLines = '';
+    let index = 1;
+
+    for (const m of membersArray) {
+        const fullName = m.displayName;
+        const cleanName = fullName.includes('||') ? fullName.split('||')[1].trim() : fullName;
+        
+        // Ambil poin absensi jika sudah diset oleh admin (default 0 jika belum)
+        const points = absenPointsMap.get(m.id) || 0;
+
+        listLines += `> ${index}. ${cleanName} [${points}]\n`;
+        index++;
+    }
+
+    const totalCount = membersArray.length;
+    const currentDate = new Date().toLocaleDateString('id-ID');
+
+    const fullText = 
+        `__**LIST ABSENSI VELOCITY ELITE CLUB**__\n` +
+        `${listLines}\n` +
+        `__**ALL MEMBER LIST : ${totalCount}**__\n` +
+        `*Last Update ${currentDate}*`;
+
+    return { text: fullText, total: totalCount };
 }
 
 client.once('ready', async () => {
@@ -265,67 +303,91 @@ client.on('interactionCreate', async interaction => {
                 return interaction.reply({ content: '🎉 Berhasil! Kamu telah terdaftar dalam giveaway ini.', ephemeral: true });
             }
         }
-        else if (interaction.customId === 'btn_open_absensi') {
-            // Cek apakah user memiliki role member (1533476290403762323)
-            const hasMemberRole = interaction.member.roles.cache.has(MEMBER_ROLE_ID);
-            if (!hasMemberRole && !interaction.member.permissions.has('ManageRoles')) {
-                return interaction.reply({ content: '❌ Absen ini khusus untuk member VEC!', ephemeral: true });
+        else if (interaction.customId === 'btn_set_absen') {
+            // Khusus Admin / Staff
+            if (!interaction.member.permissions.has('ManageRoles')) {
+                return interaction.reply({ content: '❌ Tombol ini khusus untuk Admin/Staff!', ephemeral: true });
             }
 
-            // Munculkan Modal Pop-up untuk mengisi nomor absen
             const modal = new ModalBuilder()
-                .setCustomId(`modal_absensi_${interaction.message.id}`)
-                .setTitle('VEC Member Absensi');
+                .setCustomId(`modal_set_absen_${interaction.message.id}`)
+                .setTitle('Set Poin Absensi Member');
 
-            const absenInput = new TextInputBuilder()
-                .setCustomId('input_no_absen')
-                .setLabel('Masukkan Nomor Absen Anda (Contoh: 3)')
+            const indexInput = new TextInputBuilder()
+                .setCustomId('input_index')
+                .setLabel('Nomor List Member (Contoh: 1)')
                 .setStyle(TextInputStyle.Short)
                 .setRequired(true);
 
-            modal.addComponents(new ActionRowBuilder().addComponents(absenInput));
+            const pointsInput = new TextInputBuilder()
+                .setCustomId('input_points')
+                .setLabel('Jumlah Poin Absen (Contoh: 3)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(indexInput),
+                new ActionRowBuilder().addComponents(pointsInput)
+            );
+
             await interaction.showModal(modal);
+        }
+        else if (interaction.customId === 'btn_update_absen') {
+            const messageId = interaction.message.id;
+            const absenData = activeAbsensi.get(messageId);
+
+            if (!absenData) {
+                return interaction.reply({ content: '❌ Data absensi tidak ditemukan!', ephemeral: true });
+            }
+
+            await interaction.deferUpdate();
+            const { text } = await generateAbsensiText(interaction.guild, absenData.pointsMap);
+
+            const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+                .setDescription(text);
+
+            await interaction.message.edit({ embeds: [updatedEmbed] });
         }
         return;
     }
 
-    // Handle Modal Submit Absensi
+    // Handle Modal Submit Set Absen
     if (interaction.isModalSubmit()) {
-        if (interaction.customId.startsWith('modal_absensi_')) {
-            const messageId = interaction.customId.replace('modal_absensi_', '');
+        if (interaction.customId.startsWith('modal_set_absen_')) {
+            const messageId = interaction.customId.replace('modal_set_absen_', '');
             const absenData = activeAbsensi.get(messageId);
 
             if (!absenData) {
-                return interaction.reply({ content: '❌ Sesi absensi ini sudah tidak ditemukan!', ephemeral: true });
+                return interaction.reply({ content: '❌ Data absensi tidak ditemukan!', ephemeral: true });
             }
 
-            const noAbsen = interaction.fields.getTextInputValue('input_no_absen').trim();
-            const userId = interaction.user.id;
+            const targetIndex = parseInt(interaction.fields.getTextInputValue('input_index').trim());
+            const newPoints = parseInt(interaction.fields.getTextInputValue('input_points').trim());
 
-            // Ambil nama bersih setelah '||'
-            const rawDisplayName = interaction.member.displayName;
-            const cleanName = rawDisplayName.includes('||') ? rawDisplayName.split('||')[1].trim() : rawDisplayName;
-
-            // Simpan atau perbarui absen user
-            absenData.absensiMap.set(userId, { name: cleanName, number: noAbsen, userObj: interaction.user });
-
-            // Susun ulang teks list absen
-            let listText = `__**ABSENSI MEMBER VELOCITY ELITE CLUB**__\n`;
-            listText += `📌 **Keterangan:** ${absenData.keterangan}\n\n`;
-
-            const sortedAbsen = [...absenData.absensiMap.values()].sort((a, b) => parseInt(a.number) - parseInt(b.number));
-            for (const item of sortedAbsen) {
-                listText += `> - ${item.name} [${item.number}]\n`;
+            if (isNaN(targetIndex) || isNaN(newPoints)) {
+                return interaction.reply({ content: '❌ Masukkan angka yang valid untuk nomor list dan poin!', ephemeral: true });
             }
 
-            listText += `\n__**TOTAL HADIR : ${sortedAbsen.length}**__\n`;
-            listText += `*Last Update ${new Date().toLocaleDateString('id-ID')}*`;
+            await interaction.guild.members.fetch({ force: true });
+            const role = interaction.guild.roles.cache.get(MEMBER_ROLE_ID);
+            const membersArray = role ? [...role.members.values()] : [];
 
-            // Update embed panel absensi
+            if (targetIndex < 1 || targetIndex > membersArray.length) {
+                return interaction.reply({ content: `❌ Nomor list tidak valid! Pilih antara 1 sampai ${membersArray.length}.`, ephemeral: true });
+            }
+
+            // Ambil user ID berdasarkan urutan nomor list (index - 1)
+            const targetMember = membersArray[targetIndex - 1];
+            absenData.pointsMap.set(targetMember.id, newPoints);
+
+            // Generate ulang teks absensi
+            const { text } = await generateAbsensiText(interaction.guild, absenData.pointsMap);
+
             const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
-                .setDescription(listText);
+                .setDescription(text);
 
-            await interaction.update({ embeds: [updatedEmbed] });
+            await interaction.message.edit({ embeds: [updatedEmbed] });
+            await interaction.reply({ content: `✅ Berhasil mengatur poin absen untuk nomor list **${targetIndex}** menjadi **[${newPoints}]**!`, ephemeral: true });
             return;
         }
     }
@@ -421,7 +483,6 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // Ganti /roleremove menjadi /unrole
     if (interaction.commandName === 'unrole') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -675,15 +736,12 @@ client.on('interactionCreate', async interaction => {
                 );
 
             await sentMessage.edit({ embeds: [endedEmbed], components: [disabledRow] });
-            
-            // Pemenang di-tag langsung via pesan teks biasa (tanpa background hitam/embed)
             await interaction.channel.send(`🎊 Selamat kepada ${winnerMentions} telah memenangkan **${hadiah}**!`);
         }, durasiMenit * 60 * 1000);
 
         return;
     }
 
-    // Command: /memberlist
     if (interaction.commandName === 'memberlist') {
         await interaction.guild.members.fetch({ force: true });
         const role = interaction.guild.roles.cache.get(MEMBER_ROLE_ID);
@@ -713,40 +771,39 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // Command: /absensi
+    // Command: /absensi baru
     if (interaction.commandName === 'absensi') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
-        const keterangan = interaction.options.getString('keterangan');
+        const pointsMap = new Map();
+        const { text } = await generateAbsensiText(interaction.guild, pointsMap);
 
         const embedAbsen = new EmbedBuilder()
             .setColor('#1a1a1a')
             .setTitle('📋 VEC ABSENSI MEMBER')
-            .setDescription(
-                `__**ABSENSI MEMBER VELOCITY ELITE CLUB**__\n` +
-                `📌 **Keterangan:** ${keterangan}\n\n` +
-                `_Belum ada member yang melakukan absensi._\n\n` +
-                `__**TOTAL HADIR : 0**__\n` +
-                `*Last Update ${new Date().toLocaleDateString('id-ID')}*`
-            )
+            .setDescription(text)
             .setTimestamp();
 
         const row = new ActionRowBuilder()
             .addComponents(
                 new ButtonBuilder()
-                    .setCustomId('btn_open_absensi')
-                    .setLabel('Absen Sekarang')
+                    .setCustomId('btn_set_absen')
+                    .setLabel('Set Absen')
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji('✏️'),
+                new ButtonBuilder()
+                    .setCustomId('btn_update_absen')
+                    .setLabel('Update')
                     .setStyle(ButtonStyle.Success)
-                    .setEmoji('📝')
+                    .setEmoji('🔁')
             );
 
         const sentMessage = await interaction.channel.send({ embeds: [embedAbsen], components: [row] });
 
         activeAbsensi.set(sentMessage.id, {
-            keterangan: keterangan,
-            absensiMap: new Map()
+            pointsMap: pointsMap
         });
 
         await interaction.reply({ content: '✅ Panel absensi berhasil dibuat!', ephemeral: true });
@@ -773,7 +830,7 @@ client.on('interactionCreate', async interaction => {
                 `• \`/setposisi [angka]\` - Buat undian posisi grid balap.\n` +
                 `• \`/giveaway [hadiah] [pemenang] [menit]\` - Mulai giveaway.\n` +
                 `• \`/memberlist\` - Menampilkan daftar nama & total member.\n` +
-                `• \`/absensi [keterangan]\` - Buat panel absensi interaktif.\n` +
+                `• \`/absensi\` - Buat panel absensi member otomatis.\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!logs @User\` - Kirim log member baru otomatis ke channel logs.\n` +
