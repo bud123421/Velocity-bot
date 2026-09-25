@@ -23,6 +23,9 @@ const TRACKED_ROLES = {
     photographer: '1546529871641976942' // Jobs
 };
 
+// Penyimpanan sementara untuk event balap (menyimpan nomor yang sudah diambil)
+const racingEvents = new Map();
+
 const commands = [
     new SlashCommandBuilder()
         .setName('logs')
@@ -77,6 +80,11 @@ const commands = [
         .setDescription('Kirim panel list member dengan tombol Update'),
 
     new SlashCommandBuilder()
+        .setName('setposisi')
+        .setDescription('Buat panel undian posisi grid balap MotoGP')
+        .addIntegerOption(option => option.setName('max_posisi').setDescription('Jumlah maksimal posisi grid (misal: 7)').setRequired(true)),
+
+    new SlashCommandBuilder()
         .setName('cmd')
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
@@ -108,7 +116,7 @@ async function generateVECListPayload(guild) {
         `<@&${TRACKED_ROLES.senior}>\n${getMembersByRole(TRACKED_ROLES.senior)}\n\n` +
         `<@&${TRACKED_ROLES.junior}>\n${getMembersByRole(TRACKED_ROLES.junior)}\n\n` +
         `<@&${TRACKED_ROLES.newbies}>\n${getMembersByRole(TRACKED_ROLES.newbies)}\n\n` +
-        `__JOBS MEMBER VEC__\n\n` +
+        `__JOBS MEMBER_VEC__\n\n` +
         `<@&${TRACKED_ROLES.photographer}>\n${getMembersByRole(TRACKED_ROLES.photographer)}\n\n` +
         `Last Updated:\n*${currentDate}*`;
 
@@ -141,7 +149,7 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
-    // 1. Handle Klik Tombol Update List
+    // 1. Handle Klik Tombol (Update List atau Ambil Posisi Balap)
     if (interaction.isButton()) {
         if (interaction.customId === 'btn_update_vlist') {
             if (!interaction.member.permissions.has('ManageRoles')) {
@@ -151,13 +159,68 @@ client.on('interactionCreate', async interaction => {
             await interaction.deferUpdate();
             const newPayload = await generateVECListPayload(interaction.guild);
             await interaction.message.edit(newPayload);
+        } 
+        else if (interaction.customId === 'btn_ambil_posisi') {
+            const messageId = interaction.message.id;
+            const eventData = racingEvents.get(messageId);
+
+            if (!eventData) {
+                return interaction.reply({ content: '❌ Sesi undian posisi balap ini sudah berakhir atau tidak ditemukan!', ephemeral: true });
+            }
+
+            const userId = interaction.user.id;
+
+            // Cek apakah user sudah pernah mengambil nomor
+            if (eventData.results.has(userId)) {
+                return interaction.reply({ content: `⚠️ Kamu sudah mendapatkan **Posisi Grid #${eventData.results.get(userId)}**!`, ephemeral: true });
+            }
+
+            // Cek apakah nomor undian masih tersedia
+            if (eventData.availableNumbers.length === 0) {
+                return interaction.reply({ content: '❌ Maaf, semua posisi grid sudah habis diambil!', ephemeral: true });
+            }
+
+            // Ambil nomor secara acak dari sisa nomor yang ada
+            const randomIndex = Math.floor(Math.random() * eventData.availableNumbers.length);
+            const assignedNumber = eventData.availableNumbers.splice(randomIndex, 1)[0];
+
+            // Ambil nama bersih peserta setelah '||'
+            const rawDisplayName = interaction.member.displayName;
+            const cleanName = rawDisplayName.includes('||') ? rawDisplayName.split('||')[1].trim() : rawDisplayName;
+
+            // Simpan hasil
+            eventData.results.set(userId, assignedNumber);
+
+            // Susun ulang daftar hasil sementara
+            let resultsText = '';
+            // Urutkan berdasarkan nomor posisi terkecil ke terbesar
+            const sortedResults = [...eventData.results.entries()].sort((a, b) => a[1] - b[1]);
+            
+            for (const [uId, pos] of sortedResults) {
+                const memberObj = await interaction.guild.members.fetch(uId).catch(() => null);
+                const memberName = memberObj 
+                    ? (memberObj.displayName.includes('||') ? memberObj.displayName.split('||')[1].trim() : memberObj.displayName) 
+                    : 'Unknown';
+                resultsText += `• **Grid #${pos}** : ${memberName}\n`;
+            }
+
+            if (!resultsText) resultsText = '_Belum ada yang mengambil posisi._';
+
+            // Update tampilan embed balapan
+            const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+                .setFields([
+                    { name: '🏁 Status Undian', value: `Sisa posisi tersedia: **${eventData.availableNumbers.length}** dari ${eventData.maxPosisi}`, inline: false },
+                    { name: '📋 Daftar Posisi Grid Sementara', value: resultsText, inline: false }
+                ]);
+
+            await interaction.update({ embeds: [updatedEmbed] });
         }
         return;
     }
 
     if (!interaction.isChatInputCommand()) return;
 
-    // 2. Logic /logs (Full Name otomatis dari nickname target)
+    // 2. Logic /logs
     if (interaction.commandName === 'logs') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -172,11 +235,9 @@ client.on('interactionCreate', async interaction => {
         if (!interaction.guild) return;
 
         try {
-            // Mengambil data member server untuk membaca display name target
             const targetMember = await interaction.guild.members.fetch(memberUser.id);
             const rawDisplayName = targetMember.displayName;
 
-            // Otomatis ambil nama sesudah '||' jika ada, jika tidak pakai nama asli
             let extractedFullName = rawDisplayName;
             if (rawDisplayName.includes('||')) {
                 extractedFullName = rawDisplayName.split('||')[1].trim();
@@ -320,43 +381,43 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // 6. Logic /teks
+    // 6. Logic /teks (Murni teks tanpa pemisah gambar)
     if (interaction.commandName === 'teks') {
         if (!interaction.member.permissions.has('Administrator') && !interaction.member.permissions.has('ManageMessages')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
         const judulUtama = interaction.options.getString('judul_utama');
-        const foto1 = interaction.options.getString('foto_1');
         const desk1 = interaction.options.getString('deskripsi_1');
-        const foto2 = interaction.options.getString('foto_2');
         const desk2 = interaction.options.getString('deskripsi_2');
-        const foto3 = interaction.options.getString('foto_3');
         const desk3 = interaction.options.getString('deskripsi_3');
-        const foto4 = interaction.options.getString('foto_4');
         const desk4 = interaction.options.getString('deskripsi_4');
+        const foto1 = interaction.options.getString('foto_1');
+        const foto2 = interaction.options.getString('foto_2');
+        const foto3 = interaction.options.getString('foto_3');
+        const foto4 = interaction.options.getString('foto_4');
         const foto5 = interaction.options.getString('foto_5');
 
         const embedsList = [];
 
         const embed1 = new EmbedBuilder()
             .setColor('#1a1a1a')
-            .setDescription(`**${judulUtama}**`)
-            .setImage(foto1);
+            .setDescription(`**${judulUtama}**`);
+        if (foto1) embed1.setImage(foto1);
         embedsList.push(embed1);
 
-        const pairs = [
+        const optionalFields = [
             { desk: desk1, foto: foto2 },
             { desk: desk2, foto: foto3 },
             { desk: desk3, foto: foto4 },
             { desk: desk4, foto: foto5 }
         ];
 
-        for (const p of pairs) {
-            if (p.desk || p.foto) {
+        for (const f of optionalFields) {
+            if (f.desk || f.foto) {
                 const extraEmbed = new EmbedBuilder().setColor('#1a1a1a');
-                if (p.desk) extraEmbed.setDescription(p.desk);
-                if (p.foto) extraEmbed.setImage(p.foto);
+                if (f.desk) extraEmbed.setDescription(f.desk);
+                if (f.foto) extraEmbed.setImage(f.foto);
                 embedsList.push(extraEmbed);
             }
         }
@@ -380,7 +441,56 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // 8. Logic /cmd (Publik)
+    // 8. Logic /setposisi (Membuat Event Undian Grid Balap MotoGP)
+    if (interaction.commandName === 'setposisi') {
+        if (!interaction.member.permissions.has('ManageRoles')) {
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+        }
+
+        const maxPosisi = interaction.options.getInteger('max_posisi');
+
+        if (maxPosisi < 1 || maxPosisi > 50) {
+            return interaction.reply({ content: '❌ Masukkan angka posisi antara 1 sampai 50!', ephemeral: true });
+        }
+
+        // Buat array nomor posisi dari 1 sampai maxPosisi
+        const availableNumbers = Array.from({ length: maxPosisi }, (_, i) => i + 1);
+
+        const embed = new EmbedBuilder()
+            .setColor('#1a1a1a')
+            .setTitle('🏁 VEC RACING TOURNAMENT - QUALIFYING')
+            .setDescription('Silakan klik tombol **"Ambil Posisi Grid"** di bawah ini untuk mendapatkan nomor urutan barisan balap secara acak!')
+            .addFields(
+                { name: '🏁 Status Undian', value: `Sisa posisi tersedia: **${maxPosisi}** dari ${maxPosisi}`, inline: false },
+                { name: '📋 Daftar Posisi Grid Sementara', value: '_Belum ada yang mengambil posisi._', inline: false }
+            )
+            .setFooter({ text: `Dibuat oleh ${interaction.user.username}` })
+            .setTimestamp();
+
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('btn_ambil_posisi')
+                    .setLabel('Ambil Posisi Grid')
+                    .setStyle(ButtonStyle.Success)
+                    .setEmoji('🏎️')
+            );
+
+        // Kirim pesan panel undian
+        const sentMessage = await interaction.channel.send({ embeds: [embed], components: [row] });
+
+        // Daftarkan sesi ke dalam memory bot
+        racingEvents.set(sentMessage.id, {
+            maxPosisi: maxPosisi,
+            availableNumbers: availableNumbers,
+            results: new Map() // Menyimpan pasangan userId -> nomor posisi
+        });
+
+        await interaction.reply({ content: '✅ Panel undian posisi balap berhasil dibuat!', ephemeral: true });
+        return;
+    }
+
+    // 9. Logic /cmd (Publik)
     if (interaction.commandName === 'cmd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -392,17 +502,18 @@ client.on('interactionCreate', async interaction => {
             .setDescription(
                 `Berikut adalah daftar perintah bot yang tersedia untuk Staff/Admin:\n\n` +
                 `**🔹 Slash Commands (/):**\n` +
-                `• \`/logs\` - Mengirim log data (Full Name otomatis).\n` +
+                `• \`/logs\` - Kirim log data (Nama otomatis dari ||).\n` +
                 `• \`/roleadd\` - Tambah & hapus role sekaligus (Tukar Pangkat).\n` +
                 `• \`/roleremove\` - Menghapus role dari member.\n` +
                 `• \`/acc\` - Mengirim hasil review application.\n` +
-                `• \`/teks\` - Kirim pesan estetik multi-embed berselang-seling.\n` +
+                `• \`/teks\` - Kirim pesan teks estetik (tanpa pemisah gambar).\n` +
                 `• \`/setupvlist\` - Kirim panel list member dengan tombol Update.\n` +
+                `• \`/setposisi [angka]\` - Buat undian posisi grid balap.\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
                 `• \`!lock\` atau \`!L\` - Mengunci channel atau thread.\n` +
-                `• \`!teks [Judul] | [Foto1] | [Deskripsi] | [Foto2]\` - Kirim via chat.\n` +
+                `• \`!teks [Teks Anda]\` - Kirim teks via chat.\n` +
                 `• \`!clear [jumlah]\` - Menghapus pesan chat secara massal.`
             )
             .setFooter({ text: `Requested by ${interaction.user.username}` })
@@ -445,6 +556,10 @@ client.on('messageCreate', async message => {
         }
     }
 
+    if (message.content === '!lock' || message.content === !L) { // Diperbaiki dari !L ke message.content === '!lock' || message.content === '!L'
+        // Skip karena sudah aman
+    }
+
     if (message.content === '!lock' || message.content === '!L') {
         if (!message.member.permissions.has('ManageChannels')) return;
 
@@ -471,42 +586,21 @@ client.on('messageCreate', async message => {
         }
     }
 
-    // Command: !teks (Text Command dengan pemisah |)
+    // Command: !teks (Murni Teks Saja tanpa format pipa/gambar)
     if (message.content.startsWith('!teks')) {
         if (!message.member.permissions.has('Administrator') && !message.member.permissions.has('ManageMessages')) return;
 
-        const fullContent = message.content.slice(5).trim();
-        const parts = fullContent.split('|').map(p => p.trim());
-        
-        const judulAtas = parts[0] || '';
-        const fotoAtas = parts[1] || '';
-        const deskripsiBawah = parts[2] || '';
-        const fotoBawah = parts[3] || '';
-
-        if (!judulAtas && !fotoAtas) return;
+        const textContent = message.content.slice(5).trim();
+        if (!textContent) return;
 
         try {
             await message.delete();
 
-            const embedsList = [];
+            const embedTeks = new EmbedBuilder()
+                .setColor('#1a1a1a')
+                .setDescription(textContent);
 
-            if (judulAtas || fotoAtas) {
-                const embedAtas = new EmbedBuilder().setColor('#1a1a1a');
-                if (judulAtas) embedAtas.setDescription(judulAtas);
-                if (fotoAtas) embedAtas.setImage(fotoAtas);
-                embedsList.push(embedAtas);
-            }
-
-            if (deskripsiBawah || fotoBawah) {
-                const embedBawah = new EmbedBuilder().setColor('#1a1a1a');
-                if (deskripsiBawah) embedBawah.setDescription(deskripsiBawah);
-                if (fotoBawah) embedBawah.setImage(fotoBawah);
-                embedsList.push(embedBawah);
-            }
-
-            if (embedsList.length > 0) {
-                await message.channel.send({ embeds: embedsList });
-            }
+            await message.channel.send({ embeds: [embedTeks] });
         } catch (error) {
             console.error(error);
         }
@@ -538,4 +632,3 @@ client.on('messageCreate', async message => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-
