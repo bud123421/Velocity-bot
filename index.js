@@ -352,6 +352,9 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.isModalSubmit()) {
         if (interaction.customId.startsWith('modal_set_absen_')) {
+            // Beritahu Discord agar tidak timeout
+            await interaction.deferReply({ ephemeral: true });
+
             const messageId = interaction.customId.replace('modal_set_absen_', '');
             
             if (!activeAbsensi.has(messageId)) {
@@ -363,7 +366,7 @@ client.on('interactionCreate', async interaction => {
             const newPoints = parseInt(interaction.fields.getTextInputValue('input_points').trim());
 
             if (isNaN(targetIndex) || isNaN(newPoints)) {
-                return interaction.reply({ content: '❌ Masukkan angka yang valid untuk nomor list dan poin!', ephemeral: true });
+                return interaction.editReply({ content: '❌ Masukkan angka yang valid untuk nomor list dan poin!' });
             }
 
             await interaction.guild.members.fetch({ force: true });
@@ -371,7 +374,7 @@ client.on('interactionCreate', async interaction => {
             const membersArray = role ? [...role.members.values()] : [];
 
             if (targetIndex < 1 || targetIndex > membersArray.length) {
-                return interaction.reply({ content: `❌ Nomor list tidak valid! Pilih antara 1 sampai ${membersArray.length}.`, ephemeral: true });
+                return interaction.editReply({ content: `❌ Nomor list tidak valid! Pilih antara 1 sampai ${membersArray.length}.` });
             }
 
             const targetMember = membersArray[targetIndex - 1];
@@ -383,7 +386,7 @@ client.on('interactionCreate', async interaction => {
                 .setDescription(text);
 
             await interaction.message.edit({ embeds: [updatedEmbed] });
-            await interaction.reply({ content: `✅ Berhasil mengatur poin absen untuk nomor list **${targetIndex}** menjadi **[${newPoints}]**!`, ephemeral: true });
+            await interaction.editReply({ content: `✅ Berhasil mengatur poin absen untuk nomor list **${targetIndex}** menjadi **[${newPoints}]**!` });
             return;
         }
     }
