@@ -172,13 +172,7 @@ client.on('interactionCreate', async interaction => {
             let eventData = racingEvents.get(messageId);
 
             if (!eventData) {
-                const defaultNumbers = Array.from({ length: 15 }, (_, i) => i + 1);
-                racingEvents.set(messageId, {
-                    maxPosisi: 15,
-                    availableNumbers: defaultNumbers,
-                    results: new Map()
-                });
-                eventData = racingEvents.get(messageId);
+                return interaction.reply({ content: '❌ Sesi undian posisi balap ini sudah berakhir atau bot sempat restart!', ephemeral: true });
             }
 
             const userId = interaction.user.id;
@@ -209,13 +203,38 @@ client.on('interactionCreate', async interaction => {
 
             if (!resultsText) resultsText = '_Belum ada yang mengambil posisi._';
 
+            const isFull = eventData.availableNumbers.length === 0;
+
             const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
                 .setFields([
-                    { name: '🏁 Status Undian', value: `Sisa posisi tersedia: **${eventData.availableNumbers.length}**`, inline: false },
+                    { name: '🏁 Status Undian', value: isFull ? '✅ **Semua posisi grid sudah terisi!**' : `Sisa posisi tersedia: **${eventData.availableNumbers.length}** dari ${eventData.maxPosisi}`, inline: false },
                     { name: '📋 Daftar Posisi Grid Sementara', value: resultsText, inline: false }
                 ]);
 
-            await interaction.update({ embeds: [updatedEmbed] });
+            if (isFull) {
+                const disabledRow = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('btn_grid_full')
+                            .setLabel('Grid Full')
+                            .setStyle(ButtonStyle.Secondary)
+                            .setDisabled(true)
+                            .setEmoji('🔒')
+                    );
+                await interaction.update({ embeds: [updatedEmbed], components: [disabledRow] });
+
+                let finalListText = `🏁 **FINAL GRID STARTING LINE - VEC RACING TOURNAMENT** 🏁\n\n`;
+                for (const [uId, pos] of sortedResults) {
+                    const memberObj = await interaction.guild.members.fetch(uId).catch(() => null);
+                    const memberName = memberObj 
+                        ? (memberObj.displayName.includes('||') ? memberObj.displayName.split('||')[1].trim() : memberObj.displayName) 
+                        : 'Unknown';
+                    finalListText += `• **Grid #${pos}** : ${memberName}\n`;
+                }
+                await interaction.channel.send(finalListText);
+            } else {
+                await interaction.update({ embeds: [updatedEmbed] });
+            }
         }
         else if (interaction.customId === 'btn_join_giveaway') {
             const messageId = interaction.message.id;
@@ -473,7 +492,7 @@ client.on('interactionCreate', async interaction => {
             .setTitle('🏁 VEC RACING TOURNAMENT - QUALIFYING')
             .setDescription('Silakan klik tombol **"Ambil Posisi Grid"** di bawah ini untuk mendapatkan nomor urutan barisan balap secara acak!')
             .addFields(
-                { name: '🏁 Status Undian', value: `Sisa posisi tersedia: **${maxPosisi}**`, inline: false },
+                { name: '🏁 Status Undian', value: `Sisa posisi tersedia: **${maxPosisi}** dari ${maxPosisi}`, inline: false },
                 { name: '📋 Daftar Posisi Grid Sementara', value: '_Belum ada yang mengambil posisi._', inline: false }
             )
             .setFooter({ text: `Dibuat oleh ${interaction.user.username}` })
@@ -763,7 +782,7 @@ client.on('messageCreate', async message => {
 
         try {
             await message.delete().catch(() => {});
-            const deleted = await message.channel.bulkDelete(amount, title = true);
+            const deleted = await message.channel.bulkDelete(amount, true);
             
             const notify = await message.channel.send(`🧹 Berhasil menghapus **${deleted.size}** pesan.`);
             setTimeout(() => notify.delete().catch(() => {}), 3000);
