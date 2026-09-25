@@ -9,17 +9,12 @@ const client = new Client({
     ] 
 });
 
-// ID Channel tempat list otomatis akan dikirim/di-update
 const TARGET_CHANNEL_ID = '1533476292064706652';
-
-// ID Channel khusus untuk Logs Member Baru
 const LOGS_CHANNEL_ID = '1533476291230171192';
 
-// ID Role Default untuk Command !logs
 const CIVILIAN_ROLE_ID = '1533476290445709493';
 const NEWBIES_ROLE_ID = '1533476290403762326';
 
-// Daftar ID Role yang akan dilacak oleh bot
 const TRACKED_ROLES = {
     leader: '1533476290424996082',
     supervisor: '1533476290395504797',
@@ -27,11 +22,11 @@ const TRACKED_ROLES = {
     senior: '1533476290370207884',
     junior: '1533476290395504799',
     newbies: '1533476290403762326',
-    photographer: '1546529871641976942' // Jobs
+    photographer: '1546529871641976942'
 };
 
-// Penyimpanan sementara untuk event balap
 const racingEvents = new Map();
+const activeGiveaways = new Map();
 
 const commands = [
     new SlashCommandBuilder()
@@ -92,11 +87,17 @@ const commands = [
         .addIntegerOption(option => option.setName('max_posisi').setDescription('Jumlah maksimal posisi grid (misal: 7)').setRequired(true)),
 
     new SlashCommandBuilder()
+        .setName('giveaway')
+        .setDescription('Mulai sesi giveaway baru')
+        .addStringOption(option => option.setName('hadiah').setDescription('Nama hadiah yang dibagikan').setRequired(true))
+        .addIntegerOption(option => option.setName('pemenang').setDescription('Jumlah pemenang').setRequired(true))
+        .addIntegerOption(option => option.setName('durasi').setDescription('Durasi waktu dalam menit').setRequired(true)),
+
+    new SlashCommandBuilder()
         .setName('cmd')
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
 
-// Fungsi untuk membuat Embed list member & mengambil nama setelah '||'
 async function generateVECListPayload(guild) {
     await guild.members.fetch({ force: true });
 
@@ -156,7 +157,6 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
-    // 1. Handle Klik Tombol (Update List atau Ambil Posisi Balap)
     if (interaction.isButton()) {
         if (interaction.customId === 'btn_update_vlist') {
             if (!interaction.member.permissions.has('ManageRoles')) {
@@ -217,12 +217,29 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.update({ embeds: [updatedEmbed] });
         }
+        else if (interaction.customId === 'btn_join_giveaway') {
+            const messageId = interaction.message.id;
+            const gwData = activeGiveaways.get(messageId);
+
+            if (!gwData || !gwData.active) {
+                return interaction.reply({ content: '❌ Sesi giveaway ini sudah berakhir!', ephemeral: true });
+            }
+
+            const userId = interaction.user.id;
+
+            if (gwData.participants.has(userId)) {
+                gwData.participants.delete(userId);
+                return interaction.reply({ content: '⚠️ Kamu batal mengikuti giveaway ini.', ephemeral: true });
+            } else {
+                gwData.participants.add(userId);
+                return interaction.reply({ content: '🎉 Berhasil! Kamu telah terdaftar dalam giveaway ini.', ephemeral: true });
+            }
+        }
         return;
     }
 
     if (!interaction.isChatInputCommand()) return;
 
-    // 2. Logic /logs
     if (interaction.commandName === 'logs') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -271,7 +288,6 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // 3. Logic /roleadd
     if (interaction.commandName === 'roleadd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -313,7 +329,6 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // 4. Logic /roleremove
     if (interaction.commandName === 'roleremove') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -349,7 +364,6 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // 5. Logic /acc
     if (interaction.commandName === 'acc') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -383,7 +397,6 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // 6. Logic /teks
     if (interaction.commandName === 'teks') {
         if (!interaction.member.permissions.has('Administrator') && !interaction.member.permissions.has('ManageMessages')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -428,7 +441,6 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // 7. Logic /setupvlist
     if (interaction.commandName === 'setupvlist') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -443,7 +455,6 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // 8. Logic /setposisi
     if (interaction.commandName === 'setposisi') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -489,7 +500,94 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // 9. Logic /cmd (Publik)
+    if (interaction.commandName === 'giveaway') {
+        if (!interaction.member.permissions.has('ManageRoles')) {
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+        }
+
+        const hadiah = interaction.options.getString('hadiah');
+        const jumlahPemenang = interaction.options.getInteger('pemenang');
+        const durasiMenit = interaction.options.getInteger('durasi');
+
+        const endTime = Date.now() + durasiMenit * 60 * 1000;
+        const endTimeSeconds = Math.floor(endTime / 1000);
+
+        const embedGw = new EmbedBuilder()
+            .setColor('#1a1a1a')
+            .setTitle('🎉 VEC GIVEAWAY 🎉')
+            .setDescription(
+                `🎁 **Hadiah:** ${hadiah}\n` +
+                `👑 **Jumlah Pemenang:** ${jumlahPemenang} Orang\n` +
+                `⏳ **Berakhir:** <t:${endTimeSeconds}:R> (<t:${endTimeSeconds}:f>)\n\n` +
+                `Klik tombol **"Ikut Giveaway"** di bawah untuk berpartisipasi!`
+            )
+            .setFooter({ text: `Diadakan oleh ${interaction.user.username}` })
+            .setTimestamp();
+
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('btn_join_giveaway')
+                    .setLabel('Ikut Giveaway')
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji('🎉')
+            );
+
+        const sentMessage = await interaction.channel.send({ embeds: [embedGw], components: [row] });
+
+        activeGiveaways.set(sentMessage.id, {
+            hadiah: hadiah,
+            winnersCount: jumlahPemenang,
+            participants: new Set(),
+            active: true
+        });
+
+        await interaction.reply({ content: '✅ Giveaway berhasil dimulai!', ephemeral: true });
+
+        setTimeout(async () => {
+            const gwData = activeGiveaways.get(sentMessage.id);
+            if (!gwData || !gwData.active) return;
+
+            gwData.active = false;
+            const participantsArray = [...gwData.participants];
+
+            let winnerText = '';
+            if (participantsArray.length === 0) {
+                winnerText = '_Tidak ada peserta yang mengikuti giveaway._';
+            } else {
+                const shuffled = participantsArray.sort(() => 0.5 - Math.random());
+                const winners = shuffled.slice(0, gwData.winnersCount);
+
+                for (const wId of winners) {
+                    winnerText += `• <@${wId}>\n`;
+                }
+            }
+
+            const endedEmbed = new EmbedBuilder()
+                .setColor('#1a1a1a')
+                .setTitle('🎉 VEC GIVEAWAY - BERAKHIR 🎉')
+                .setDescription(
+                    `🎁 **Hadiah:** ${hadiah}\n\n` +
+                    `👑 **Pemenang Terpilih:**\n${winnerText}`
+                )
+                .setTimestamp();
+
+            const disabledRow = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('btn_join_giveaway_ended')
+                        .setLabel('Giveaway Selesai')
+                        .setStyle(ButtonStyle.Secondary)
+                        .setDisabled(true)
+                );
+
+            await sentMessage.edit({ embeds: [endedEmbed], components: [disabledRow] });
+            await sentMessage.reply(`🎊 Selamat kepada pemenang giveaway **${hadiah}**!`).catch(() => {});
+        }, durasiMenit * 60 * 1000);
+
+        return;
+    }
+
     if (interaction.commandName === 'cmd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -508,6 +606,7 @@ client.on('interactionCreate', async interaction => {
                 `• \`/teks\` - Kirim pesan teks estetik.\n` +
                 `• \`/setupvlist\` - Kirim panel list member dengan tombol Update.\n` +
                 `• \`/setposisi [angka]\` - Buat undian posisi grid balap.\n` +
+                `• \`/giveaway [hadiah] [pemenang] [menit]\` - Mulai giveaway.\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!logs @User\` - Kirim log member baru otomatis ke channel logs.\n` +
@@ -524,11 +623,9 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// Text Commands (!logs, !setnick, !lock, !teks, dan !clear)
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // Command: !logs @mention (Otomatis kirim log ke channel logs)
     if (message.content.startsWith('!logs')) {
         if (!message.member.permissions.has('ManageRoles')) return;
 
@@ -571,6 +668,9 @@ client.on('messageCreate', async message => {
             const logsChannel = await message.guild.channels.fetch(LOGS_CHANNEL_ID);
             if (logsChannel) {
                 await logsChannel.send({ embeds: [embedLogs] });
+                
+                // Pesan konfirmasi sukses yang dibiarkan terus terlihat di chat
+                await message.channel.send(`✅ Berhasil terkirim ke <#${LOGS_CHANNEL_ID}> by ${message.author}!`);
             }
         } catch (error) {
             console.error(error);
@@ -632,7 +732,6 @@ client.on('messageCreate', async message => {
         }
     }
 
-    // Command: !teks (Murni Teks Saja tanpa format pipa/gambar)
     if (message.content.startsWith('!teks')) {
         if (!message.member.permissions.has('Administrator') && !message.member.permissions.has('ManageMessages')) return;
 
