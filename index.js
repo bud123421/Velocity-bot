@@ -302,7 +302,7 @@ client.on('interactionCreate', async interaction => {
                 return interaction.reply({ content: '❌ Tombol ini khusus untuk Admin/Staff!', ephemeral: true });
             }
 
-            return interaction.reply({ content: '💡 Silakan gunakan perintah chat **`!p @User [jumlah_poin]`** untuk menambah poin absen secara instan!', ephemeral: true });
+            return interaction.reply({ content: '💡 Silakan gunakan perintah chat **`!p @User [jumlah_poin]`** untuk menambah atau mengurangi poin absen secara instan!', ephemeral: true });
         }
         else if (interaction.customId === 'btn_update_absen') {
             if (!activeAbsensi.has(interaction.message.id)) {
@@ -765,7 +765,7 @@ client.on('interactionCreate', async interaction => {
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
                 `• \`!lock\` atau \`!L\` - Mengunci channel atau thread.\n` +
                 `• \`!teks [Teks Anda]\` - Kirim teks murni via chat.\n` +
-                `• \`!p @User [poin]\` - Menambah poin absen secara akumulatif.\n` +
+                `• \`!p @User [poin]\` - Menambah atau mengurangi poin (contoh: \`!p @User 3\` atau \`!p @User -3\`).\n` +
                 `• \`!c [jumlah]\` - Menghapus pesan chat secara massal.`
             )
             .setFooter({ text: `Requested by ${interaction.user.username}` })
@@ -779,21 +779,20 @@ client.on('interactionCreate', async interaction => {
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // Command !p @User [jumlah_poin] untuk menambah poin absen secara akumulatif
+    // Command !p @User [jumlah_poin] untuk akumulasi tambah atau kurang poin
     if (message.content.startsWith('!p')) {
         if (!message.member.permissions.has('ManageRoles')) return;
 
         const args = message.content.split(' ');
         const targetUser = message.mentions.users.first();
-        const addPoints = parseInt(args[2]);
+        const changePoints = parseInt(args[2]);
 
-        if (!targetUser || isNaN(addPoints)) {
-            return message.reply('❌ Format salah! Contoh: `!p @Boris 1` atau `!p @Boris 3`').then(msg => {
+        if (!targetUser || isNaN(changePoints)) {
+            return message.reply('❌ Format salah! Contoh: `!p @Boris 1` (tambah) atau `!p @Boris -3` (kurang)').then(msg => {
                 setTimeout(() => msg.delete().catch(() => {}), 4000);
             });
         }
 
-        // Ambil data absensi aktif di channel ini
         const channelAbsensi = activeAbsensi.size > 0 ? [...activeAbsensi.entries()][activeAbsensi.size - 1] : null;
 
         if (!channelAbsensi) {
@@ -802,9 +801,11 @@ client.on('messageCreate', async message => {
 
         const [msgId, absenData] = channelAbsensi;
 
-        // Ambil poin sebelumnya (default 0), lalu tambahkan dengan poin baru
         const currentPoints = absenData.pointsMap.get(targetUser.id) || 0;
-        const totalNewPoints = currentPoints + addPoints;
+        let totalNewPoints = currentPoints + changePoints;
+        
+        // Mencegah poin menjadi minus (minimal 0)
+        if (totalNewPoints < 0) totalNewPoints = 0;
 
         absenData.pointsMap.set(targetUser.id, totalNewPoints);
 
@@ -822,7 +823,9 @@ client.on('messageCreate', async message => {
         const targetMember = await message.guild.members.fetch(targetUser.id);
         const cleanName = targetMember.displayName.includes('||') ? targetMember.displayName.split('||')[1].trim() : targetMember.displayName;
 
-        await message.reply(`✅ Berhasil menambahkan **${addPoints} poin** untuk **${cleanName}**. Total poin sekarang: **[${totalNewPoints}]**`).then(msg => {
+        const actionText = changePoints < 0 ? `mengurangi ${Math.abs(changePoints)} poin` : `menambahkan ${changePoints} poin`;
+
+        await message.reply(`✅ Berhasil ${actionText} untuk **${cleanName}**. Total poin sekarang: **[${totalNewPoints}]**`).then(msg => {
             setTimeout(() => msg.delete().catch(() => {}), 5000);
         });
 
@@ -953,7 +956,6 @@ client.on('messageCreate', async message => {
         }
     }
 
-    // Command !c untuk menghapus pesan secara massal
     if (message.content.startsWith('!c')) {
         if (!message.member.permissions.has('ManageMessages')) return;
 
