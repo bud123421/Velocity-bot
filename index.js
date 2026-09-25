@@ -165,7 +165,6 @@ async function generateAbsensiText(guild, absenPointsMap) {
         return { text: '__**LIST ABSENSI VELOCITY ELITE CLUB**__\n\n_Tidak ada member._\n\n__**ALL MEMBER LIST : 0**__\n*Last Update ' + new Date().toLocaleDateString('id-ID') + '*', total: 0 };
     }
 
-    // Ubah collection member menjadi array dan urutkan abjad atau sesuai keinginan
     const membersArray = [...role.members.values()];
     
     let listLines = '';
@@ -175,7 +174,6 @@ async function generateAbsensiText(guild, absenPointsMap) {
         const fullName = m.displayName;
         const cleanName = fullName.includes('||') ? fullName.split('||')[1].trim() : fullName;
         
-        // Ambil poin absensi jika sudah diset oleh admin (default 0 jika belum)
         const points = absenPointsMap.get(m.id) || 0;
 
         listLines += `> ${index}. ${cleanName} [${points}]\n`;
@@ -304,9 +302,12 @@ client.on('interactionCreate', async interaction => {
             }
         }
         else if (interaction.customId === 'btn_set_absen') {
-            // Khusus Admin / Staff
             if (!interaction.member.permissions.has('ManageRoles')) {
                 return interaction.reply({ content: '❌ Tombol ini khusus untuk Admin/Staff!', ephemeral: true });
+            }
+
+            if (!activeAbsensi.has(interaction.message.id)) {
+                activeAbsensi.set(interaction.message.id, { pointsMap: new Map() });
             }
 
             const modal = new ModalBuilder()
@@ -333,12 +334,10 @@ client.on('interactionCreate', async interaction => {
             await interaction.showModal(modal);
         }
         else if (interaction.customId === 'btn_update_absen') {
-            const messageId = interaction.message.id;
-            const absenData = activeAbsensi.get(messageId);
-
-            if (!absenData) {
-                return interaction.reply({ content: '❌ Data absensi tidak ditemukan!', ephemeral: true });
+            if (!activeAbsensi.has(interaction.message.id)) {
+                activeAbsensi.set(interaction.message.id, { pointsMap: new Map() });
             }
+            const absenData = activeAbsensi.get(interaction.message.id);
 
             await interaction.deferUpdate();
             const { text } = await generateAbsensiText(interaction.guild, absenData.pointsMap);
@@ -351,15 +350,14 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // Handle Modal Submit Set Absen
     if (interaction.isModalSubmit()) {
         if (interaction.customId.startsWith('modal_set_absen_')) {
             const messageId = interaction.customId.replace('modal_set_absen_', '');
-            const absenData = activeAbsensi.get(messageId);
-
-            if (!absenData) {
-                return interaction.reply({ content: '❌ Data absensi tidak ditemukan!', ephemeral: true });
+            
+            if (!activeAbsensi.has(messageId)) {
+                activeAbsensi.set(messageId, { pointsMap: new Map() });
             }
+            const absenData = activeAbsensi.get(messageId);
 
             const targetIndex = parseInt(interaction.fields.getTextInputValue('input_index').trim());
             const newPoints = parseInt(interaction.fields.getTextInputValue('input_points').trim());
@@ -376,11 +374,9 @@ client.on('interactionCreate', async interaction => {
                 return interaction.reply({ content: `❌ Nomor list tidak valid! Pilih antara 1 sampai ${membersArray.length}.`, ephemeral: true });
             }
 
-            // Ambil user ID berdasarkan urutan nomor list (index - 1)
             const targetMember = membersArray[targetIndex - 1];
             absenData.pointsMap.set(targetMember.id, newPoints);
 
-            // Generate ulang teks absensi
             const { text } = await generateAbsensiText(interaction.guild, absenData.pointsMap);
 
             const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
@@ -771,7 +767,6 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // Command: /absensi baru
     if (interaction.commandName === 'absensi') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
