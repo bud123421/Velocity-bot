@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 const client = new Client({ 
     intents: [
@@ -302,33 +302,7 @@ client.on('interactionCreate', async interaction => {
                 return interaction.reply({ content: '❌ Tombol ini khusus untuk Admin/Staff!', ephemeral: true });
             }
 
-            if (!activeAbsensi.has(interaction.message.id)) {
-                activeAbsensi.set(interaction.message.id, { pointsMap: new Map() });
-            }
-
-            const modal = new ModalBuilder()
-                .setCustomId(`modal_set_absen_${interaction.message.id}`)
-                .setTitle('Set Poin Absensi Member');
-
-            const mentionInput = new TextInputBuilder()
-                .setCustomId('input_mention')
-                .setLabel('Mention Member (Contoh: @Boris)')
-                .setStyle(TextInputStyle.Short)
-                .setPlaceholder('@NamaMember atau User ID')
-                .setRequired(true);
-
-            const pointsInput = new TextInputBuilder()
-                .setCustomId('input_points')
-                .setLabel('Jumlah Poin Absen (Contoh: 3)')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true);
-
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(mentionInput),
-                new ActionRowBuilder().addComponents(pointsInput)
-            );
-
-            await interaction.showModal(modal);
+            return interaction.reply({ content: '💡 Silakan gunakan perintah chat **`!p @User [jumlah_poin]`** untuk menambah poin absen secara instan!', ephemeral: true });
         }
         else if (interaction.customId === 'btn_update_absen') {
             if (!activeAbsensi.has(interaction.message.id)) {
@@ -345,58 +319,6 @@ client.on('interactionCreate', async interaction => {
             await interaction.message.edit({ embeds: [updatedEmbed] });
         }
         return;
-    }
-
-    if (interaction.isModalSubmit()) {
-        if (interaction.customId.startsWith('modal_set_absen_')) {
-            await interaction.deferReply({ ephemeral: true });
-
-            const messageId = interaction.customId.replace('modal_set_absen_', '');
-            
-            if (!activeAbsensi.has(messageId)) {
-                activeAbsensi.set(messageId, { pointsMap: new Map() });
-            }
-            const absenData = activeAbsensi.get(messageId);
-
-            const rawInput = interaction.fields.getTextInputValue('input_mention').trim();
-            const newPoints = parseInt(interaction.fields.getTextInputValue('input_points').trim());
-
-            if (isNaN(newPoints)) {
-                return interaction.editReply({ content: '❌ Masukkan jumlah angka poin yang valid!' });
-            }
-
-            let targetUserId = rawInput.replace(/[^0-9]/g, '');
-
-            await interaction.guild.members.fetch({ force: true });
-            let targetMember = null;
-
-            if (targetUserId) {
-                targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
-            }
-
-            if (!targetMember) {
-                targetMember = interaction.guild.members.cache.find(m => 
-                    m.user.username.toLowerCase() === rawInput.toLowerCase() ||
-                    m.displayName.toLowerCase().includes(rawInput.toLowerCase())
-                );
-            }
-
-            if (!targetMember) {
-                return interaction.editReply({ content: `❌ Member dengan input "${rawInput}" tidak ditemukan! Pastikan melakukan mention yang benar (contoh: @NamaUser).` });
-            }
-
-            absenData.pointsMap.set(targetMember.id, newPoints);
-
-            const { text } = await generateAbsensiText(interaction.guild, absenData.pointsMap);
-
-            const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
-                .setDescription(text);
-
-            await interaction.message.edit({ embeds: [updatedEmbed] });
-            const cleanTargetName = targetMember.displayName.includes('||') ? targetMember.displayName.split('||')[1].trim() : targetMember.displayName;
-            await interaction.editReply({ content: `✅ Berhasil mengatur poin absen untuk **${cleanTargetName}** menjadi **[${newPoints}]**!` });
-            return;
-        }
     }
 
     if (!interaction.isChatInputCommand()) return;
@@ -618,7 +540,7 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'setposisi') {
         if (!interaction.member.permissions.has('ManageRoles')) {
-            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+            return interaction.reply({ content: '❌ Tombol ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
         const maxPosisi = interaction.options.getInteger('max_posisi');
@@ -663,7 +585,7 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'giveaway') {
         if (!interaction.member.permissions.has('ManageRoles')) {
-            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+            return interaction.reply({ content: '❌ Tombol ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
         const hadiah = interaction.options.getString('hadiah');
@@ -843,7 +765,8 @@ client.on('interactionCreate', async interaction => {
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
                 `• \`!lock\` atau \`!L\` - Mengunci channel atau thread.\n` +
                 `• \`!teks [Teks Anda]\` - Kirim teks murni via chat.\n` +
-                `• \`!clear [jumlah]\` - Menghapus pesan chat secara massal.`
+                `• \`!p @User [poin]\` - Menambah poin absen secara akumulatif.\n` +
+                `• \`!c [jumlah]\` - Menghapus pesan chat secara massal.`
             )
             .setFooter({ text: `Requested by ${interaction.user.username}` })
             .setTimestamp();
@@ -855,6 +778,57 @@ client.on('interactionCreate', async interaction => {
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
+
+    // Command !p @User [jumlah_poin] untuk menambah poin absen secara akumulatif
+    if (message.content.startsWith('!p')) {
+        if (!message.member.permissions.has('ManageRoles')) return;
+
+        const args = message.content.split(' ');
+        const targetUser = message.mentions.users.first();
+        const addPoints = parseInt(args[2]);
+
+        if (!targetUser || isNaN(addPoints)) {
+            return message.reply('❌ Format salah! Contoh: `!p @Boris 1` atau `!p @Boris 3`').then(msg => {
+                setTimeout(() => msg.delete().catch(() => {}), 4000);
+            });
+        }
+
+        // Ambil data absensi aktif di channel ini
+        const channelAbsensi = activeAbsensi.size > 0 ? [...activeAbsensi.entries()][activeAbsensi.size - 1] : null;
+
+        if (!channelAbsensi) {
+            return message.reply('❌ Belum ada panel absensi aktif di channel ini! Ketik `/absensi` terlebih dahulu.');
+        }
+
+        const [msgId, absenData] = channelAbsensi;
+
+        // Ambil poin sebelumnya (default 0), lalu tambahkan dengan poin baru
+        const currentPoints = absenData.pointsMap.get(targetUser.id) || 0;
+        const totalNewPoints = currentPoints + addPoints;
+
+        absenData.pointsMap.set(targetUser.id, totalNewPoints);
+
+        try {
+            const messageObj = await message.channel.messages.fetch(msgId);
+            if (messageObj) {
+                const { text } = await generateAbsensiText(message.guild, absenData.pointsMap);
+                const updatedEmbed = EmbedBuilder.from(messageObj.embeds[0]).setDescription(text);
+                await messageObj.edit({ embeds: [updatedEmbed] });
+            }
+        } catch (e) {
+            console.log('Panel pesan tidak ditemukan, poin tetap diperbarui.');
+        }
+
+        const targetMember = await message.guild.members.fetch(targetUser.id);
+        const cleanName = targetMember.displayName.includes('||') ? targetMember.displayName.split('||')[1].trim() : targetMember.displayName;
+
+        await message.reply(`✅ Berhasil menambahkan **${addPoints} poin** untuk **${cleanName}**. Total poin sekarang: **[${totalNewPoints}]**`).then(msg => {
+            setTimeout(() => msg.delete().catch(() => {}), 5000);
+        });
+
+        await message.delete().catch(() => {});
+        return;
+    }
 
     if (message.content.startsWith('!logs')) {
         if (!message.member.permissions.has('ManageRoles')) return;
@@ -979,14 +953,15 @@ client.on('messageCreate', async message => {
         }
     }
 
-    if (message.content.startsWith('!clear')) {
+    // Command !c untuk menghapus pesan secara massal
+    if (message.content.startsWith('!c')) {
         if (!message.member.permissions.has('ManageMessages')) return;
 
         const args = message.content.split(' ');
         const amount = parseInt(args[1]);
 
         if (isNaN(amount) || amount <= 0 || amount > 100) {
-            return message.reply('❌ Masukkan jumlah angka 1 sampai 100! Contoh: `!clear 10`').then(msg => {
+            return message.reply('❌ Masukkan jumlah angka 1 sampai 100! Contoh: `!c 10`').then(msg => {
                 setTimeout(() => msg.delete().catch(() => {}), 4000);
             });
         }
