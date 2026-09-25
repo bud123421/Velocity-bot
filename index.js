@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 const client = new Client({ 
     intents: [
@@ -27,6 +27,7 @@ const TRACKED_ROLES = {
 
 const racingEvents = new Map();
 const activeGiveaways = new Map();
+const activeRegistrations = new Map(); // Penyimpanan data event registrasi
 
 const commands = [
     new SlashCommandBuilder()
@@ -94,6 +95,12 @@ const commands = [
         .addIntegerOption(option => option.setName('durasi').setDescription('Durasi waktu dalam menit').setRequired(true)),
 
     new SlashCommandBuilder()
+        .setName('registevent')
+        .setDescription('Buat panel registrasi event balap')
+        .addStringOption(option => option.setName('deskripsi').setDescription('Deskripsi info event').setRequired(true))
+        .addIntegerOption(option => option.setName('kuota').setDescription('Maksimal jumlah peserta (misal: 7)').setRequired(true)),
+
+    new SlashCommandBuilder()
         .setName('cmd')
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
@@ -157,6 +164,7 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
+    // 1. Handle Klik Tombol (Button)
     if (interaction.isButton()) {
         if (interaction.customId === 'btn_update_vlist') {
             if (!interaction.member.permissions.has('ManageRoles')) {
@@ -235,11 +243,110 @@ client.on('interactionCreate', async interaction => {
                 return interaction.reply({ content: '🎉 Berhasil! Kamu telah terdaftar dalam giveaway ini.', ephemeral: true });
             }
         }
+        else if (interaction.customId === 'btn_open_regist') {
+            const messageId = interaction.message.id;
+            const regData = activeRegistrations.get(messageId);
+
+            if (!regData || !regData.active) {
+                return interaction.reply({ content: '❌ Pendaftaran event ini sudah ditutup!', ephemeral: true });
+            }
+
+            const userId = interaction.user.id;
+            if (regData.participants.has(userId)) {
+                return interaction.reply({ content: '⚠️ Kamu sudah terdaftar dalam event ini!', ephemeral: true });
+            }
+
+            // Munculkan Modal Form untuk diisi member
+            const modal = new ModalBuilder()
+                .setCustomId(`modal_regist_${messageId}`)
+                .setTitle('VEC Event Registration');
+
+            const vehicleInput = new TextInputBuilder()
+                .setCustomId('input_vehicle')
+                .setLabel('Nama Kendaraan (Misal: Jester)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const ssInput = new TextInputBuilder()
+                .setCustomId('input_ss')
+                .setLabel('Link SS /mypv (Dari Galeri / Hosting Gambar)')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('https://...')
+                .setRequired(true);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(vehicleInput),
+                new ActionRowBuilder().addComponents(ssInput)
+            );
+
+            await interaction.showModal(modal);
+        }
+        return;
+    }
+
+    // 2. Handle Modal Submit (Form Registrasi Event)
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId.startsWith('modal_regist_')) {
+            const messageId = interaction.customId.replace('modal_regist_', '');
+            const regData = activeRegistrations.get(messageId);
+
+            if (!regData || !regData.active) {
+                return interaction.reply({ content: '❌ Pendaftaran sudah ditutup!', ephemeral: true });
+            }
+
+            const userId = interaction.user.id;
+            if (regData.participants.has(userId)) {
+                return interaction.reply({ content: '⚠️ Kamu sudah terdaftar!', ephemeral: true });
+            }
+
+            const vehicleName = interaction.fields.getTextInputValue('input_vehicle');
+            const ssLink = interaction.fields.getTextInputValue('input_ss');
+
+            // Ambil nama bersih dari '||'
+            const rawDisplayName = interaction.member.displayName;
+            const cleanName = rawDisplayName.includes('||') ? rawDisplayName.split('||')[1].trim() : rawDisplayName;
+
+            // Masukkan peserta ke daftar
+            regData.participants.add(userId);
+
+            // Format pesan yang dikirim bot ke chat
+            const formatText = 
+                `**Format Register**\n` +
+                `> • Full Name : **${cleanName}**\n` +
+                `> • Discord : **${interaction.user}**\n` +
+                `> • Nama Kendaraan : **${vehicleName}**\n` +
+                `> • SS kendaraan /mypv : ${ssLink}`;
+
+            await interaction.channel.send({ content: formatText });
+            await interaction.reply({ content: '✅ Pendaftaran event kamu berhasil dikirim!', ephemeral: true });
+
+            // Cek apakah kuota sudah penuh
+            if (regData.participants.size >= regData.maxQuota) {
+                regData.active = false;
+
+                try {
+                    const panelMessage = await interaction.channel.messages.fetch(messageId);
+                    const disabledRow = new ActionRowBuilder()
+                        .addComponents(
+                            new ButtonBuilder()
+                                .setCustomId('btn_regist_close')
+                                .setLabel('Regist Close')
+                                .setStyle(ButtonStyle.Secondary)
+                                .setDisabled(true)
+                                .setEmoji('🔒')
+                        );
+                    await panelMessage.edit({ components: [disabledRow] });
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+        }
         return;
     }
 
     if (!interaction.isChatInputCommand()) return;
 
+    // 3. Slash Commands Lainnya
     if (interaction.commandName === 'logs') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -443,7 +550,7 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'setupvlist') {
         if (!interaction.member.permissions.has('ManageRoles')) {
-            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+            return interaction.reply({ content: '❌ Tombol ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
         const payload = await generateVECListPayload(interaction.guild);
@@ -588,6 +695,48 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
+    // 4. Logic /registevent
+    if (interaction.commandName === 'registevent') {
+        if (!interaction.member.permissions.has('ManageRoles')) {
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+        }
+
+        const deskripsiEvent = interaction.options.getString('deskripsi');
+        const maxQuota = interaction.options.getInteger('kuota');
+
+        const embedReg = new EmbedBuilder()
+            .setColor('#1a1a1a')
+            .setTitle('🏎️ VEC EVENT REGISTRATION')
+            .setDescription(
+                `📋 **Informasi Event:**\n${deskripsiEvent}\n\n` +
+                `👥 **Kuota Peserta:** 0 / ${maxQuota}\n\n` +
+                `Klik tombol di bawah untuk mengisi formulir pendaftaran!`
+            )
+            .setFooter({ text: `Dibuat oleh ${interaction.user.username}` })
+            .setTimestamp();
+
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('btn_open_regist')
+                    .setLabel('Isi Format')
+                    .setStyle(ButtonStyle.Success)
+                    .setEmoji('📋')
+            );
+
+        const sentMessage = await interaction.channel.send({ embeds: [embedReg], components: [row] });
+
+        activeRegistrations.set(sentMessage.id, {
+            description: deskripsiEvent,
+            maxQuota: maxQuota,
+            participants: new Set(),
+            active: true
+        });
+
+        await interaction.reply({ content: '✅ Panel registrasi event berhasil dibuat!', ephemeral: true });
+        return;
+    }
+
     if (interaction.commandName === 'cmd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -607,6 +756,7 @@ client.on('interactionCreate', async interaction => {
                 `• \`/setupvlist\` - Kirim panel list member dengan tombol Update.\n` +
                 `• \`/setposisi [angka]\` - Buat undian posisi grid balap.\n` +
                 `• \`/giveaway [hadiah] [pemenang] [menit]\` - Mulai giveaway.\n` +
+                `• \`/registevent [deskripsi] [kuota]\` - Buat panel registrasi event.\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!logs @User\` - Kirim log member baru otomatis ke channel logs.\n` +
@@ -668,8 +818,6 @@ client.on('messageCreate', async message => {
             const logsChannel = await message.guild.channels.fetch(LOGS_CHANNEL_ID);
             if (logsChannel) {
                 await logsChannel.send({ embeds: [embedLogs] });
-                
-                // Pesan konfirmasi sukses yang dibiarkan terus terlihat di chat
                 await message.channel.send(`✅ Berhasil terkirim ke <#${LOGS_CHANNEL_ID}> by ${message.author}!`);
             }
         } catch (error) {
