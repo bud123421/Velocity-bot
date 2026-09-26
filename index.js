@@ -104,11 +104,8 @@ const commands = [
         .setDescription('Buat panel absensi member interaktif'),
 
     new SlashCommandBuilder()
-        .setName('update')
-        .setDescription('Kirim log pembaruan/perbaikan bot untuk para staff')
-        .addStringOption(option => option.setName('versi').setDescription('Versi bot atau pembaruan (misal: v1.1)').setRequired(true))
-        .addStringOption(option => option.setName('kategori').setDescription('Jenis update (Contoh: Fitur Baru / Perbaikan Bug)').setRequired(true))
-        .addStringOption(option => option.setName('detail').setDescription('Detail perubahan (gunakan koma atau baris baru)').setRequired(true)),
+        .setName('updatebot')
+        .setDescription('Kirim informasi pembaruan sistem V-Bot terbaru'),
 
     new SlashCommandBuilder()
         .setName('cmd')
@@ -291,7 +288,7 @@ client.on('interactionCreate', async interaction => {
             const gwData = activeGiveaways.get(messageId);
 
             if (!gwData || !gwData.active) {
-                return interaction.reply({ content: '❌ Sesi giveaway ini sudah berakhir!', ephemeral: true });
+                return interaction.reply({ content: '❌ Sesi giveaway ini sudah berakhir atau sudah ditutup!', ephemeral: true });
             }
 
             const userId = interaction.user.id;
@@ -424,6 +421,8 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
+        await interaction.deferReply();
+
         const targetUser = interaction.options.getUser('member');
         const role1 = interaction.options.getRole('role1');
         const role2 = interaction.options.getRole('role2');
@@ -447,9 +446,10 @@ client.on('interactionCreate', async interaction => {
                 )
                 .setTimestamp();
 
-            await interaction.reply({ embeds: [embedRemove] });
+            await interaction.editReply({ embeds: [embedRemove] });
         } catch (error) {
             console.error(error);
+            await interaction.editReply({ content: '❌ Gagal mencopot role. Pastikan bot memiliki hierarki role di atas member tersebut.' });
         }
         return;
     }
@@ -547,7 +547,7 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'setposisi') {
         if (!interaction.member.permissions.has('ManageRoles')) {
-            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+            return interaction.reply({ content: '❌ Tombol ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
         const maxPosisi = interaction.options.getInteger('max_posisi');
@@ -592,7 +592,7 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'giveaway') {
         if (!interaction.member.permissions.has('ManageRoles')) {
-            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+            return interaction.reply({ content: '❌ Tombol ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
         const hadiah = interaction.options.getString('hadiah');
@@ -625,55 +625,62 @@ client.on('interactionCreate', async interaction => {
 
         const sentMessage = await interaction.channel.send({ embeds: [embedGw], components: [row] });
 
-        activeGiveaways.set(sentMessage.id, {
+        const gwObj = {
             hadiah: hadiah,
             winnersCount: jumlahPemenang,
             participants: new Set(),
-            active: true
-        });
+            active: true,
+            endTime: endTime
+        };
+
+        activeGiveaways.set(sentMessage.id, gwObj);
 
         await interaction.reply({ content: '✅ Giveaway berhasil dimulai!', ephemeral: true });
 
-        setTimeout(async () => {
-            const gwData = activeGiveaways.get(sentMessage.id);
-            if (!gwData || !gwData.active) return;
+        // Fungsi Timer giveaway dengan pengaman waktu aktual (mengatasi kendala restart Railway)
+        const checkGiveawayInterval = setInterval(async () => {
+            if (Date.now() >= endTime) {
+                clearInterval(checkGiveawayInterval);
+                const gwData = activeGiveaways.get(sentMessage.id);
+                if (!gwData || !gwData.active) return;
 
-            gwData.active = false;
-            const participantsArray = [...gwData.participants];
+                gwData.active = false;
+                const participantsArray = [...gwData.participants];
 
-            let winnerMentions = '';
-            if (participantsArray.length === 0) {
-                winnerMentions = '_Tidak ada peserta yang mengikuti giveaway._';
-            } else {
-                const shuffled = participantsArray.sort(() => 0.5 - Math.random());
-                const winners = shuffled.slice(0, gwData.winnersCount);
+                let winnerMentions = '';
+                if (participantsArray.length === 0) {
+                    winnerMentions = '_Tidak ada peserta yang mengikuti giveaway._';
+                } else {
+                    const shuffled = participantsArray.sort(() => 0.5 - Math.random());
+                    const winners = shuffled.slice(0, gwData.winnersCount);
 
-                for (const wId of winners) {
-                    winnerMentions += `<@${wId}> `;
+                    for (const wId of winners) {
+                        winnerMentions += `<@${wId}> `;
+                    }
                 }
+
+                const endedEmbed = new EmbedBuilder()
+                    .setColor('#1a1a1a')
+                    .setTitle('🎉 VEC GIVEAWAY - BERAKHIR 🎉')
+                    .setDescription(
+                        `🎁 **Hadiah:** ${hadiah}\n\n` +
+                        `👑 **Pemenang Terpilih:**\n${winnerMentions}`
+                    )
+                    .setTimestamp();
+
+                const disabledRow = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('btn_join_giveaway_ended')
+                            .setLabel('Giveaway Selesai')
+                            .setStyle(ButtonStyle.Secondary)
+                            .setDisabled(true)
+                    );
+
+                await sentMessage.edit({ embeds: [endedEmbed], components: [disabledRow] }).catch(() => {});
+                await interaction.channel.send(`🎊 Selamat kepada ${winnerMentions} telah memenangkan **${hadiah}**!`).catch(() => {});
             }
-
-            const endedEmbed = new EmbedBuilder()
-                .setColor('#1a1a1a')
-                .setTitle('🎉 VEC GIVEAWAY - BERAKHIR 🎉')
-                .setDescription(
-                    `🎁 **Hadiah:** ${hadiah}\n\n` +
-                    `👑 **Pemenang Terpilih:**\n${winnerMentions}`
-                )
-                .setTimestamp();
-
-            const disabledRow = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('btn_join_giveaway_ended')
-                        .setLabel('Giveaway Selesai')
-                        .setStyle(ButtonStyle.Secondary)
-                        .setDisabled(true)
-                );
-
-            await sentMessage.edit({ embeds: [endedEmbed], components: [disabledRow] });
-            await interaction.channel.send(`🎊 Selamat kepada ${winnerMentions} telah memenangkan **${hadiah}**!`);
-        }, durasiMenit * 60 * 1000);
+        }, 5000);
 
         return;
     }
@@ -745,25 +752,26 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    if (interaction.commandName === 'update') {
+    if (interaction.commandName === 'updatebot') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
-        const versi = interaction.options.getString('versi');
-        const kategori = interaction.options.getString('kategori');
-        const detail = interaction.options.getString('detail');
-
         const embedUpdate = new EmbedBuilder()
             .setColor('#1a1a1a')
-            .setTitle(`🚀 V-BOT UPDATE LOGS - [${versi}]`)
+            .setTitle('🚀 V-BOT UPDATE LOGS - [v2.5]')
             .setDescription(
-                `Pemberitahuan pembaruan sistem dan fitur bot terbaru untuk Velocity Elite Club.\n\n` +
-                `> • **Versi:** ${versi}\n` +
-                `> • **Kategori:** ${kategori}\n` +
+                `Pemberitahuan pembaruan sistem dan peningkatan fitur bot terbaru untuk Velocity Elite Club.\n\n` +
+                `> • **Versi:** v2.5 Stabil\n` +
+                `> • **Kategori:** Fitur Baru & Perbaikan Bug\n` +
                 `> • **Diperbarui Oleh:** ${interaction.user}\n\n` +
-                `📋 **Detail Pembaruan / Perbaikan:**\n` +
-                `\`\`\`text\n${detail}\n\`\`\``
+                `📋 **Detail Pembaruan:**\n` +
+                `\`\`\`text\n` +
+                `1. Perbaikan bug command /unrole agar berjalan lancar.\n` +
+                `2. Perbaikan sistem timer Giveaway otomatis anti-macet.\n` +
+                `3. Penambahan command /updatebot untuk info log pembaruan.\n` +
+                `4. Optimalisasi akumulasi poin absen dengan !p @user [poin/-poin].\n` +
+                `\`\`\``
             )
             .setFooter({ text: `V-BOT System Update | ${new Date().toLocaleDateString('id-ID')}` })
             .setTimestamp();
@@ -794,14 +802,14 @@ client.on('interactionCreate', async interaction => {
                 `• \`/giveaway [hadiah] [pemenang] [menit]\` - Mulai giveaway.\n` +
                 `• \`/memberlist\` - Menampilkan daftar nama & total member.\n` +
                 `• \`/absensi\` - Buat panel absensi member otomatis.\n` +
-                `• \`/update [versi] [kategori] [detail]\` - Kirim log pembaruan bot.\n` +
+                `• \`/updatebot\` - Kirim log informasi pembaruan bot.\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!logs @User\` - Kirim log member baru otomatis ke channel logs.\n` +
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
                 `• \`!lock\` atau \`!L\` - Mengunci channel atau thread.\n` +
                 `• \`!teks [Teks Anda]\` - Kirim teks murni via chat.\n` +
-                `• \`!p @User [poin]\` - Menambah atau mengurangi poin (contoh: \`!p @User 3\` atau \`!p @User -3\`).\n` +
+                `• \`!p @User [poin]\` - Tambah/kurang poin absen (contoh: \`!p @User 3\` atau \`!p @User -3\`).\n` +
                 `• \`!c [jumlah]\` - Menghapus pesan chat secara massal.`
             )
             .setFooter({ text: `Requested by ${interaction.user.username}` })
