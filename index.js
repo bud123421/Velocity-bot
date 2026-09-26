@@ -12,6 +12,11 @@ const client = new Client({
 const TARGET_CHANNEL_ID = '1533476292064706652';
 const LOGS_CHANNEL_ID = '1533476291230171192';
 
+// Konstanta Baru untuk Giveaway & Klaim
+const CLAIM_CHANNEL_ID = '1553405229586710538';
+const GIVEAWAY_ROLE_ID = '1553408506026266786';
+const GIVEAWAY_ADMIN_ROLE_ID = '1546871204944810014';
+
 const CIVILIAN_ROLE_ID = '1533476290445709493';
 const NEWBIES_ROLE_ID = '1533476290403762326';
 const MEMBER_ROLE_ID = '1533476290403762323';
@@ -295,11 +300,71 @@ client.on('interactionCreate', async interaction => {
 
             if (gwData.participants.has(userId)) {
                 gwData.participants.delete(userId);
+                
+                // Update total peserta di embed real-time
+                const currentEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
+                const fields = currentEmbed.data.fields || [];
+                const totalPartIndex = fields.findIndex(f => f.name.includes('Total Peserta'));
+                const newPartCount = gwData.participants.size;
+                
+                if (totalPartIndex !== -1) {
+                    fields[totalPartIndex].value = `👥 **${newPartCount} Orang**`;
+                } else {
+                    fields.push({ name: '👥 Total Peserta', value: `👥 **${newPartCount} Orang**`, inline: false });
+                }
+                currentEmbed.setFields(fields);
+                await interaction.message.edit({ embeds: [currentEmbed] }).catch(() => {});
+
                 return interaction.reply({ content: '⚠️ Kamu batal mengikuti giveaway ini.', ephemeral: true });
             } else {
                 gwData.participants.add(userId);
+
+                // Update total peserta di embed real-time
+                const currentEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
+                const fields = currentEmbed.data.fields || [];
+                const totalPartIndex = fields.findIndex(f => f.name.includes('Total Peserta'));
+                const newPartCount = gwData.participants.size;
+
+                if (totalPartIndex !== -1) {
+                    fields[totalPartIndex].value = `👥 **${newPartCount} Orang**`;
+                } else {
+                    fields.push({ name: '👥 Total Peserta', value: `👥 **${newPartCount} Orang**`, inline: false });
+                }
+                currentEmbed.setFields(fields);
+                await interaction.message.edit({ embeds: [currentEmbed] }).catch(() => {});
+
                 return interaction.reply({ content: '🎉 Berhasil! Kamu telah terdaftar dalam giveaway ini.', ephemeral: true });
             }
+        }
+        else if (interaction.customId.startsWith('btn_close_claim_')) {
+            const targetUserId = interaction.customId.replace('btn_close_claim_', '');
+            
+            // Cek apakah yang klik adalah admin atau pemenang itu sendiri
+            if (!interaction.member.permissions.has('ManageRoles') && interaction.user.id !== targetUserId) {
+                return interaction.reply({ content: '❌ Tombol ini hanya dapat digunakan oleh Admin atau pemenang terkait!', ephemeral: true });
+            }
+
+            try {
+                const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
+                if (targetMember && targetMember.roles.cache.has(GIVEAWAY_ROLE_ID)) {
+                    await targetMember.roles.remove(GIVEAWAY_ROLE_ID);
+                }
+
+                const disabledRow = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('btn_closed')
+                            .setLabel('Claim Ditutup / Selesai')
+                            .setStyle(ButtonStyle.Secondary)
+                            .setDisabled(true)
+                            .setEmoji('🔒')
+                    );
+
+                await interaction.update({ content: `🔒 Claim telah ditutup oleh ${interaction.user}. Role tiket klaim telah dicabut dari pemenang.`, components: [disabledRow] });
+            } catch (e) {
+                await interaction.reply({ content: '❌ Gagal mencopot role pemenang.', ephemeral: true });
+            }
+            return;
         }
         else if (interaction.customId === 'btn_set_absen') {
             if (!interaction.member.permissions.has('ManageRoles')) {
@@ -592,7 +657,7 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'giveaway') {
         if (!interaction.member.permissions.has('ManageRoles')) {
-            return interaction.reply({ content: '❌ Tombol ini khusus untuk Staff/Admin!', ephemeral: true });
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
         const hadiah = interaction.options.getString('hadiah');
@@ -610,6 +675,9 @@ client.on('interactionCreate', async interaction => {
                 `👑 **Jumlah Pemenang:** ${jumlahPemenang} Orang\n` +
                 `⏳ **Berakhir:** <t:${endTimeSeconds}:R> (<t:${endTimeSeconds}:f>)\n\n` +
                 `Klik tombol **"Ikut Giveaway"** di bawah untuk berpartisipasi!`
+            )
+            .addFields(
+                { name: '👥 Total Peserta', value: '👥 **0 Orang**', inline: false }
             )
             .setFooter({ text: `Diadakan oleh ${interaction.user.username}` })
             .setTimestamp();
@@ -637,7 +705,7 @@ client.on('interactionCreate', async interaction => {
 
         await interaction.reply({ content: '✅ Giveaway berhasil dimulai!', ephemeral: true });
 
-        // Fungsi Timer giveaway dengan pengaman waktu aktual (mengatasi kendala restart Railway)
+        // Timer Giveaway
         const checkGiveawayInterval = setInterval(async () => {
             if (Date.now() >= endTime) {
                 clearInterval(checkGiveawayInterval);
@@ -648,6 +716,7 @@ client.on('interactionCreate', async interaction => {
                 const participantsArray = [...gwData.participants];
 
                 let winnerMentions = '';
+                let winnerIds = [];
                 if (participantsArray.length === 0) {
                     winnerMentions = '_Tidak ada peserta yang mengikuti giveaway._';
                 } else {
@@ -655,7 +724,8 @@ client.on('interactionCreate', async interaction => {
                     const winners = shuffled.slice(0, gwData.winnersCount);
 
                     for (const wId of winners) {
-                        winnerMentions += `<@${wId}> `;
+                        winnerMentions += `<@${wId}>\n`;
+                        winnerIds.push(wId);
                     }
                 }
 
@@ -664,7 +734,8 @@ client.on('interactionCreate', async interaction => {
                     .setTitle('🎉 VEC GIVEAWAY - BERAKHIR 🎉')
                     .setDescription(
                         `🎁 **Hadiah:** ${hadiah}\n\n` +
-                        `👑 **Pemenang Terpilih:**\n${winnerMentions}`
+                        `👑 **Pemenang Terpilih:**\n${winnerMentions}\n\n` +
+                        `✨ Silakan menuju ke channel <#${CLAIM_CHANNEL_ID}> untuk melakukan claim hadiah Anda!`
                     )
                     .setTimestamp();
 
@@ -679,6 +750,34 @@ client.on('interactionCreate', async interaction => {
 
                 await sentMessage.edit({ embeds: [endedEmbed], components: [disabledRow] }).catch(() => {});
                 await interaction.channel.send(`🎊 Selamat kepada ${winnerMentions} telah memenangkan **${hadiah}**!`).catch(() => {});
+
+                // Berikan role ke pemenang dan kirim pesan otomatis ke channel claim
+                if (winnerIds.length > 0) {
+                    const claimChannel = await interaction.guild.channels.fetch(CLAIM_CHANNEL_ID).catch(() => null);
+                    
+                    for (const wId of winnerIds) {
+                        const winnerMember = await interaction.guild.members.fetch(wId).catch(() => null);
+                        if (winnerMember) {
+                            await winnerMember.roles.add(GIVEAWAY_ROLE_ID).catch(() => {});
+                            
+                            if (claimChannel) {
+                                const closeRow = new ActionRowBuilder()
+                                    .addComponents(
+                                        new ButtonBuilder()
+                                            .setCustomId(`btn_close_claim_${wId}`)
+                                            .setLabel('Tutup Claim')
+                                            .setStyle(ButtonStyle.Danger)
+                                            .setEmoji('🔒')
+                                    );
+
+                                await claimChannel.send({
+                                    content: `<@${wId}> silahkan klaim di sini <@&${GIVEAWAY_ADMIN_ROLE_ID}>`,
+                                    components: [closeRow]
+                                }).catch(() => {});
+                            }
+                        }
+                    }
+                }
             }
         }, 5000);
 
@@ -759,24 +858,25 @@ client.on('interactionCreate', async interaction => {
 
         const embedUpdate = new EmbedBuilder()
             .setColor('#1a1a1a')
-            .setTitle('🚀 V-BOT UPDATE LOGS - [v2.5]')
+            .setTitle('🚀 V-BOT UPDATE LOGS - [v2.6]')
             .setDescription(
                 `Pemberitahuan pembaruan sistem dan peningkatan fitur bot terbaru untuk Velocity Elite Club.\n\n` +
-                `> • **Versi:** v2.5 Stabil\n` +
-                `> • **Kategori:** Fitur Baru & Perbaikan Bug\n` +
+                `> • **Versi:** v2.6 Stabil\n` +
+                `> • **Kategori:** Fitur Giveaway & Klaim Otomatis\n` +
                 `> • **Diperbarui Oleh:** ${interaction.user}\n\n` +
                 `📋 **Detail Pembaruan:**\n` +
                 `\`\`\`text\n` +
-                `1. Perbaikan bug command /unrole agar berjalan lancar.\n` +
-                `2. Perbaikan sistem timer Giveaway otomatis anti-macet.\n` +
-                `3. Penambahan command /updatebot untuk info log pembaruan.\n` +
-                `4. Optimalisasi akumulasi poin absen dengan !p @user [poin/-poin].\n` +
+                `1. Menghapus tag @everyone pada perintah /updatebot.\n` +
+                `2. Penambahan informasi total peserta pada panel Giveaway.\n` +
+                `3. Penambahan tag pemenang otomatis di akhir giveaway dengan arahan ke channel klaim.\n` +
+                `4. Pemberian role tiket klaim otomatis dan tombol 'Tutup Claim' untuk mencopot role.\n` +
                 `\`\`\``
             )
             .setFooter({ text: `V-BOT System Update | ${new Date().toLocaleDateString('id-ID')}` })
             .setTimestamp();
 
-        await interaction.channel.send({ content: '📢 **@everyone** Update Bot Terbaru Telah Dirilis!', embeds: [embedUpdate] });
+        // Dikirim tanpa mention @everyone sesuai permintaan
+        await interaction.channel.send({ embeds: [embedUpdate] });
         await interaction.reply({ content: '✅ Log pembaruan bot berhasil dikirim!', ephemeral: true });
         return;
     }
