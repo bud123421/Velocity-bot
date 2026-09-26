@@ -104,6 +104,13 @@ const commands = [
         .setDescription('Buat panel absensi member interaktif'),
 
     new SlashCommandBuilder()
+        .setName('update')
+        .setDescription('Kirim log pembaruan/perbaikan bot untuk para staff')
+        .addStringOption(option => option.setName('versi').setDescription('Versi bot atau pembaruan (misal: v1.1)').setRequired(true))
+        .addStringOption(option => option.setName('kategori').setDescription('Jenis update (Contoh: Fitur Baru / Perbaikan Bug)').setRequired(true))
+        .addStringOption(option => option.setName('detail').setDescription('Detail perubahan (gunakan koma atau baris baru)').setRequired(true)),
+
+    new SlashCommandBuilder()
         .setName('cmd')
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
@@ -241,7 +248,7 @@ client.on('interactionCreate', async interaction => {
                 const memberName = memberObj 
                     ? (memberObj.displayName.includes('||') ? memberObj.displayName.split('||')[1].trim() : memberObj.displayName) 
                     : 'Unknown';
-                resultsText += `• **Grid #${pos}** : ${memberName}\n`;
+                resultsText += `• **Grid #${pos}** :${memberName}\n`;
             }
 
             if (!resultsText) resultsText = '_Belum ada yang mengambil posisi._';
@@ -272,7 +279,7 @@ client.on('interactionCreate', async interaction => {
                     const memberName = memberObj 
                         ? (memberObj.displayName.includes('||') ? memberObj.displayName.split('||')[1].trim() : memberObj.displayName) 
                         : 'Unknown';
-                    finalListText += `• **Grid #${pos}** : ${memberName}\n`;
+                    finalListText += `• **Grid #${pos}** :${memberName}\n`;
                 }
                 await interaction.channel.send(finalListText);
             } else {
@@ -428,7 +435,7 @@ client.on('interactionCreate', async interaction => {
             if (role1) await member.roles.remove(role1);
             if (role2) await member.roles.remove(role2);
 
-            let removedRolesText = role2 ? `${role1} & ${role2}` : `${role1}`;
+            let removedRolesText = role2 ? `${role1} &${role2}` : `${role1}`;
 
             const embedRemove = new EmbedBuilder()
                 .setColor('#e74c3c')
@@ -540,7 +547,7 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'setposisi') {
         if (!interaction.member.permissions.has('ManageRoles')) {
-            return interaction.reply({ content: '❌ Tombol ini khusus untuk Staff/Admin!', ephemeral: true });
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
         const maxPosisi = interaction.options.getInteger('max_posisi');
@@ -585,7 +592,7 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'giveaway') {
         if (!interaction.member.permissions.has('ManageRoles')) {
-            return interaction.reply({ content: '❌ Tombol ini khusus untuk Staff/Admin!', ephemeral: true });
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
         }
 
         const hadiah = interaction.options.getString('hadiah');
@@ -738,6 +745,34 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
+    if (interaction.commandName === 'update') {
+        if (!interaction.member.permissions.has('ManageRoles')) {
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
+        }
+
+        const versi = interaction.options.getString('versi');
+        const kategori = interaction.options.getString('kategori');
+        const detail = interaction.options.getString('detail');
+
+        const embedUpdate = new EmbedBuilder()
+            .setColor('#1a1a1a')
+            .setTitle(`🚀 V-BOT UPDATE LOGS - [${versi}]`)
+            .setDescription(
+                `Pemberitahuan pembaruan sistem dan fitur bot terbaru untuk Velocity Elite Club.\n\n` +
+                `> • **Versi:** ${versi}\n` +
+                `> • **Kategori:** ${kategori}\n` +
+                `> • **Diperbarui Oleh:** ${interaction.user}\n\n` +
+                `📋 **Detail Pembaruan / Perbaikan:**\n` +
+                `\`\`\`text\n${detail}\n\`\`\``
+            )
+            .setFooter({ text: `V-BOT System Update | ${new Date().toLocaleDateString('id-ID')}` })
+            .setTimestamp();
+
+        await interaction.channel.send({ content: '📢 **@everyone** Update Bot Terbaru Telah Dirilis!', embeds: [embedUpdate] });
+        await interaction.reply({ content: '✅ Log pembaruan bot berhasil dikirim!', ephemeral: true });
+        return;
+    }
+
     if (interaction.commandName === 'cmd') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -759,6 +794,7 @@ client.on('interactionCreate', async interaction => {
                 `• \`/giveaway [hadiah] [pemenang] [menit]\` - Mulai giveaway.\n` +
                 `• \`/memberlist\` - Menampilkan daftar nama & total member.\n` +
                 `• \`/absensi\` - Buat panel absensi member otomatis.\n` +
+                `• \`/update [versi] [kategori] [detail]\` - Kirim log pembaruan bot.\n` +
                 `• \`/cmd\` - Menampilkan daftar perintah ini.\n\n` +
                 `**🔹 Text Commands (!):**\n` +
                 `• \`!logs @User\` - Kirim log member baru otomatis ke channel logs.\n` +
@@ -779,7 +815,6 @@ client.on('interactionCreate', async interaction => {
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // Command !p @User [jumlah_poin] untuk akumulasi tambah atau kurang poin
     if (message.content.startsWith('!p')) {
         if (!message.member.permissions.has('ManageRoles')) return;
 
@@ -804,7 +839,6 @@ client.on('messageCreate', async message => {
         const currentPoints = absenData.pointsMap.get(targetUser.id) || 0;
         let totalNewPoints = currentPoints + changePoints;
         
-        // Mencegah poin menjadi minus (minimal 0)
         if (totalNewPoints < 0) totalNewPoints = 0;
 
         absenData.pointsMap.set(targetUser.id, totalNewPoints);
