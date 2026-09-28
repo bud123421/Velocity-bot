@@ -12,7 +12,6 @@ const client = new Client({
 const TARGET_CHANNEL_ID = '1533476292064706652';
 const LOGS_CHANNEL_ID = '1533476291230171192';
 
-// Konstanta Baru untuk Giveaway & Klaim
 const CLAIM_CHANNEL_ID = '1553405229586710538';
 const GIVEAWAY_ROLE_ID = '1553408506026266786';
 const GIVEAWAY_ADMIN_ROLE_ID = '1546871204944810014';
@@ -173,15 +172,12 @@ async function generateAbsensiText(guild, absenPointsMap) {
     }
 
     const membersArray = [...role.members.values()];
-    
     let listLines = '';
 
     for (const m of membersArray) {
         const fullName = m.displayName;
         const cleanName = fullName.includes('||') ? fullName.split('||')[1].trim() : fullName;
-        
         const points = absenPointsMap.get(m.id) || 0;
-
         listLines += `> - ${cleanName} [${points}]\n`;
     }
 
@@ -301,7 +297,6 @@ client.on('interactionCreate', async interaction => {
             if (gwData.participants.has(userId)) {
                 gwData.participants.delete(userId);
                 
-                // Update total peserta di embed real-time
                 const currentEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
                 const fields = currentEmbed.data.fields || [];
                 const totalPartIndex = fields.findIndex(f => f.name.includes('Total Peserta'));
@@ -319,7 +314,6 @@ client.on('interactionCreate', async interaction => {
             } else {
                 gwData.participants.add(userId);
 
-                // Update total peserta di embed real-time
                 const currentEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
                 const fields = currentEmbed.data.fields || [];
                 const totalPartIndex = fields.findIndex(f => f.name.includes('Total Peserta'));
@@ -339,7 +333,6 @@ client.on('interactionCreate', async interaction => {
         else if (interaction.customId.startsWith('btn_close_claim_')) {
             const targetUserId = interaction.customId.replace('btn_close_claim_', '');
             
-            // Cek apakah yang klik adalah admin atau pemenang itu sendiri
             if (!interaction.member.permissions.has('ManageRoles') && interaction.user.id !== targetUserId) {
                 return interaction.reply({ content: '❌ Tombol ini hanya dapat digunakan oleh Admin atau pemenang terkait!', ephemeral: true });
             }
@@ -455,7 +448,6 @@ client.on('interactionCreate', async interaction => {
 
         try {
             const member = await interaction.guild.members.fetch(targetUser.id);
-            
             let addedList = [];
             let removedList = [];
 
@@ -569,10 +561,7 @@ client.on('interactionCreate', async interaction => {
         const foto5 = interaction.options.getString('foto_5');
 
         const embedsList = [];
-
-        const embed1 = new EmbedBuilder()
-            .setColor('#1a1a1a')
-            .setDescription(`**${judulUtama}**`);
+        const embed1 = new EmbedBuilder().setColor('#1a1a1a').setDescription(`**${judulUtama}**`);
         if (foto1) embed1.setImage(foto1);
         embedsList.push(embed1);
 
@@ -616,7 +605,6 @@ client.on('interactionCreate', async interaction => {
         }
 
         const maxPosisi = interaction.options.getInteger('max_posisi');
-
         if (maxPosisi < 1 || maxPosisi > 50) {
             return interaction.reply({ content: '❌ Masukkan angka posisi antara 1 sampai 50!', ephemeral: true });
         }
@@ -644,7 +632,6 @@ client.on('interactionCreate', async interaction => {
             );
 
         const sentMessage = await interaction.channel.send({ embeds: [embed], components: [row] });
-
         racingEvents.set(sentMessage.id, {
             maxPosisi: maxPosisi,
             availableNumbers: availableNumbers,
@@ -692,7 +679,6 @@ client.on('interactionCreate', async interaction => {
             );
 
         const sentMessage = await interaction.channel.send({ embeds: [embedGw], components: [row] });
-
         const gwObj = {
             hadiah: hadiah,
             winnersCount: jumlahPemenang,
@@ -702,10 +688,8 @@ client.on('interactionCreate', async interaction => {
         };
 
         activeGiveaways.set(sentMessage.id, gwObj);
-
         await interaction.reply({ content: '✅ Giveaway berhasil dimulai!', ephemeral: true });
 
-        // Timer Giveaway
         const checkGiveawayInterval = setInterval(async () => {
             if (Date.now() >= endTime) {
                 clearInterval(checkGiveawayInterval);
@@ -751,15 +735,12 @@ client.on('interactionCreate', async interaction => {
                 await sentMessage.edit({ embeds: [endedEmbed], components: [disabledRow] }).catch(() => {});
                 await interaction.channel.send(`🎊 Selamat kepada ${winnerMentions} telah memenangkan **${hadiah}**!`).catch(() => {});
 
-                // Berikan role ke pemenang dan kirim pesan otomatis ke channel claim
                 if (winnerIds.length > 0) {
                     const claimChannel = await interaction.guild.channels.fetch(CLAIM_CHANNEL_ID).catch(() => null);
-                    
                     for (const wId of winnerIds) {
                         const winnerMember = await interaction.guild.members.fetch(wId).catch(() => null);
                         if (winnerMember) {
                             await winnerMember.roles.add(GIVEAWAY_ROLE_ID).catch(() => {});
-                            
                             if (claimChannel) {
                                 const closeRow = new ActionRowBuilder()
                                     .addComponents(
@@ -780,7 +761,6 @@ client.on('interactionCreate', async interaction => {
                 }
             }
         }, 5000);
-
         return;
     }
 
@@ -842,10 +822,7 @@ client.on('interactionCreate', async interaction => {
             );
 
         const sentMessage = await interaction.channel.send({ embeds: [embedAbsen], components: [row] });
-
-        activeAbsensi.set(sentMessage.id, {
-            pointsMap: pointsMap
-        });
+        activeAbsensi.set(sentMessage.id, { pointsMap: pointsMap });
 
         await interaction.reply({ content: '✅ Panel absensi berhasil dibuat!', ephemeral: true });
         return;
@@ -875,7 +852,6 @@ client.on('interactionCreate', async interaction => {
             .setFooter({ text: `V-BOT System Update | ${new Date().toLocaleDateString('id-ID')}` })
             .setTimestamp();
 
-        // Dikirim tanpa mention @everyone sesuai permintaan
         await interaction.channel.send({ embeds: [embedUpdate] });
         await interaction.reply({ content: '✅ Log pembaruan bot berhasil dikirim!', ephemeral: true });
         return;
@@ -909,7 +885,7 @@ client.on('interactionCreate', async interaction => {
                 `• \`!setnick @User NamaBaru\` - Mengubah nickname member.\n` +
                 `• \`!lock\` atau \`!L\` - Mengunci channel atau thread.\n` +
                 `• \`!teks [Teks Anda]\` - Kirim teks murni via chat.\n` +
-                `• \`!p @User [poin]\` - Tambah/kurang poin absen (contoh: \`!p @User 3\` atau \`!p @User -3\`).\n` +
+                `• \`!p @User [poin]\` - Tambah/kurang poin absen.\n` +
                 `• \`!c [jumlah]\` - Menghapus pesan chat secara massal.`
             )
             .setFooter({ text: `Requested by ${interaction.user.username}` })
@@ -937,16 +913,13 @@ client.on('messageCreate', async message => {
         }
 
         const channelAbsensi = activeAbsensi.size > 0 ? [...activeAbsensi.entries()][activeAbsensi.size - 1] : null;
-
         if (!channelAbsensi) {
             return message.reply('❌ Belum ada panel absensi aktif di channel ini! Ketik `/absensi` terlebih dahulu.');
         }
 
         const [msgId, absenData] = channelAbsensi;
-
         const currentPoints = absenData.pointsMap.get(targetUser.id) || 0;
         let totalNewPoints = currentPoints + changePoints;
-        
         if (totalNewPoints < 0) totalNewPoints = 0;
 
         absenData.pointsMap.set(targetUser.id, totalNewPoints);
@@ -964,7 +937,6 @@ client.on('messageCreate', async message => {
 
         const targetMember = await message.guild.members.fetch(targetUser.id);
         const cleanName = targetMember.displayName.includes('||') ? targetMember.displayName.split('||')[1].trim() : targetMember.displayName;
-
         const actionText = changePoints < 0 ? `mengurangi ${Math.abs(changePoints)} poin` : `menambahkan ${changePoints} poin`;
 
         await message.reply(`✅ Berhasil ${actionText} untuk **${cleanName}**. Total poin sekarang: **[${totalNewPoints}]**`).then(msg => {
@@ -987,7 +959,6 @@ client.on('messageCreate', async message => {
 
         try {
             await message.delete().catch(() => {});
-
             const targetMember = await message.guild.members.fetch(targetUser.id);
             const rawDisplayName = targetMember.displayName;
 
@@ -1030,7 +1001,6 @@ client.on('messageCreate', async message => {
 
         const targetUser = message.mentions.users.first();
         const newNickname = message.content.replace('!setnick', '').replace(/<@!?\d+>/, '').trim();
-
         if (!targetUser || !newNickname) return;
 
         try {
@@ -1087,38 +1057,41 @@ client.on('messageCreate', async message => {
 
         try {
             await message.delete();
-
-            const embedTeks = new EmbedBuilder()
-                .setColor('#1a1a1a')
-                .setDescription(textContent);
-
+            const embedTeks = new EmbedBuilder().setColor('#1a1a1a').setDescription(textContent);
             await message.channel.send({ embeds: [embedTeks] });
         } catch (error) {
             console.error(error);
         }
     }
 
+    // --- PERBAIKAN UTAMA PADA COMMAND !C (PRESISI & ANTI-NABRAK) ---
     if (message.content.startsWith('!c')) {
         if (!message.member.permissions.has('ManageMessages')) return;
 
-        const args = message.content.split(' ');
-        const amount = parseInt(args[1]);
+        const args = message.content.trim().split(/\s+/);
+        const command = args[0].toLowerCase();
 
-        if (isNaN(amount) || amount <= 0 || amount > 100) {
-            return message.reply('❌ Masukkan jumlah angka 1 sampai 100! Contoh: `!c 10`').then(msg => {
-                setTimeout(() => msg.delete().catch(() => {}), 4000);
-            });
-        }
+        // Bot HANYA akan mengeksekusi clear chat jika command persis bernilai '!c'
+        if (command === '!c') {
+            const amount = parseInt(args[1]);
 
-        try {
-            await message.delete().catch(() => {});
-            const deleted = await message.channel.bulkDelete(amount, true);
-            
-            const notify = await message.channel.send(`🧹 Berhasil menghapus **${deleted.size}** pesan.`);
-            setTimeout(() => notify.delete().catch(() => {}), 3000);
-        } catch (error) {
-            console.error(error);
-            message.reply('❌ Gagal menghapus pesan (pesan yang lebih dari 14 hari tidak bisa dihapus massal).');
+            if (isNaN(amount) || amount <= 0 || amount > 100) {
+                return message.reply('❌ Masukkan jumlah angka 1 sampai 100! Contoh: `!c 10`').then(msg => {
+                    setTimeout(() => msg.delete().catch(() => {}), 4000);
+                });
+            }
+
+            try {
+                await message.delete().catch(() => {});
+                const deleted = await message.channel.bulkDelete(amount, true);
+                
+                const notify = await message.channel.send(`🧹 Berhasil menghapus **${deleted.size}** pesan.`);
+                setTimeout(() => notify.delete().catch(() => {}), 3000);
+            } catch (error) {
+                console.error(error);
+                message.reply('❌ Gagal menghapus pesan (pesan yang lebih dari 14 hari tidak bisa dihapus massal).');
+            }
+            return;
         }
     }
 });
