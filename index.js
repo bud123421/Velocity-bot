@@ -9,16 +9,22 @@ const client = new Client({
     ] 
 });
 
+// --- KONFIGURASI CHANNEL ---
 const TARGET_CHANNEL_ID = '1533476292064706652';
 const LOGS_CHANNEL_ID = '1533476291230171192';
-
 const CLAIM_CHANNEL_ID = '1553405229586710538';
-const GIVEAWAY_ROLE_ID = '1553408506026266786';
-const GIVEAWAY_ADMIN_ROLE_ID = '1546871204944810014';
 
+// --- KONFIGURASI ROLE ---
+const GIVEAWAY_ROLE_ID = '1553408506026266786';
+const GIVEAWAY_ADMIN_ROLE_ID = '1546871204944810014'; // Juga dipakai untuk Admin Event
 const CIVILIAN_ROLE_ID = '1533476290445709493';
 const NEWBIES_ROLE_ID = '1533476290403762326';
 const MEMBER_ROLE_ID = '1533476290403762323';
+
+// Konfigurasi Role Auto-Detect
+const HANDLE_RECRUITMENT_ROLE_ID = '1533476290386989069';
+const EVENT_ADMIN_ROLE_ID = '1546871204944810014';
+const EVENT_ACCEPTED_ROLE_ID = '1533476290424996085';
 
 const TRACKED_ROLES = {
     leader: '1533476290424996082',
@@ -30,10 +36,13 @@ const TRACKED_ROLES = {
     photographer: '1546529871641976942'
 };
 
+// --- MEMORI SEMENTARA (MAPS) ---
 const racingEvents = new Map();
 const activeGiveaways = new Map();
 const activeAbsensi = new Map();
+const activeRequests = new Map(); // Untuk simpan nama form pendaftaran
 
+// --- DAFTAR SLASH COMMANDS ---
 const commands = [
     new SlashCommandBuilder()
         .setName('logs')
@@ -116,6 +125,7 @@ const commands = [
         .setDescription('Menampilkan daftar perintah bot khusus staff')
 ].map(command => command.toJSON());
 
+// --- HELPER FUNCTIONS ---
 async function generateVECListPayload(guild) {
     await guild.members.fetch({ force: true });
 
@@ -193,6 +203,7 @@ async function generateAbsensiText(guild, absenPointsMap) {
     return { text: fullText, total: totalCount };
 }
 
+// --- BOT READY ---
 client.once('ready', async () => {
     console.log(`Bot ${client.user.tag} sudah online!`);
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -204,18 +215,101 @@ client.once('ready', async () => {
     }
 });
 
+// --- INTERACTION CREATE (Tombol & Slash Commands) ---
 client.on('interactionCreate', async interaction => {
     if (interaction.isButton()) {
+        
+        // --- BUTTON: AUTO RECRUITMENT ACCEPT ---
+        if (interaction.customId.startsWith('btn_acc_rec_')) {
+            const targetId = interaction.customId.replace('btn_acc_rec_', '');
+            
+            if (!interaction.member.roles.cache.has(HANDLE_RECRUITMENT_ROLE_ID) && !interaction.member.permissions.has('ManageRoles')) {
+                return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk mengurus recruitment!', ephemeral: true });
+            }
+
+            const fullName = activeRequests.get(`rec_${targetId}`);
+            if (!fullName) {
+                return interaction.reply({ content: '❌ Data pendaftar sudah kedaluwarsa di memori bot (Bot habis direstart). Mohon setnick secara manual.', ephemeral: true });
+            }
+
+            try {
+                const targetMember = await interaction.guild.members.fetch(targetId);
+                await targetMember.setNickname(`V-Newbies || ${fullName}`);
+                
+                const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+                    .setColor('#2ecc71')
+                    .setDescription(`✅ **DITERIMA** oleh ${interaction.user}\nNickname telah diubah otomatis menjadi: \`V-Newbies || ${fullName}\``);
+                    
+                await interaction.update({ embeds: [updatedEmbed], components: [] });
+                activeRequests.delete(`rec_${targetId}`); 
+            } catch (e) {
+                console.error(e);
+                await interaction.reply({ content: '❌ Gagal mengubah nickname. Pastikan role bot berada **di atas** role user tersebut!', ephemeral: true });
+            }
+            return;
+        }
+
+        // --- BUTTON: AUTO RECRUITMENT DENY ---
+        if (interaction.customId.startsWith('btn_deny_rec_')) {
+            const targetId = interaction.customId.replace('btn_deny_rec_', '');
+            
+            if (!interaction.member.roles.cache.has(HANDLE_RECRUITMENT_ROLE_ID) && !interaction.member.permissions.has('ManageRoles')) {
+                return interaction.reply({ content: '❌ Anda tidak memiliki izin!', ephemeral: true });
+            }
+
+            const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+                .setColor('#e74c3c')
+                .setDescription(`❌ **DITOLAK** oleh ${interaction.user}`);
+                
+            await interaction.update({ embeds: [updatedEmbed], components: [] });
+            activeRequests.delete(`rec_${targetId}`);
+            return;
+        }
+
+        // --- BUTTON: AUTO EVENT ACCEPT ---
+        if (interaction.customId.startsWith('btn_acc_evt_')) {
+            const targetId = interaction.customId.replace('btn_acc_evt_', '');
+            
+            if (!interaction.member.roles.cache.has(EVENT_ADMIN_ROLE_ID) && !interaction.member.permissions.has('ManageRoles')) {
+                return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk mengurus pendaftaran event!', ephemeral: true });
+            }
+
+            const fullName = activeRequests.get(`evt_${targetId}`);
+            if (!fullName) {
+                return interaction.reply({ content: '❌ Data nama sudah kedaluwarsa di memori bot.', ephemeral: true });
+            }
+
+            try {
+                const targetMember = await interaction.guild.members.fetch(targetId);
+                await targetMember.setNickname(`Civil || ${fullName}`);
+                await targetMember.roles.add(EVENT_ACCEPTED_ROLE_ID); 
+                
+                const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+                    .setColor('#2ecc71')
+                    .setDescription(`🏁 **PENDAFTARAN DITERIMA** oleh ${interaction.user}\n\n• Role <@&${EVENT_ACCEPTED_ROLE_ID}> telah diberikan.\n• Nickname diubah menjadi: \`Civil || ${fullName}\``);
+                    
+                await interaction.update({ embeds: [updatedEmbed], components: [] });
+                activeRequests.delete(`evt_${targetId}`);
+            } catch (e) {
+                console.error(e);
+                await interaction.reply({ content: '❌ Gagal mengubah nickname/role. Pastikan bot memiliki izin yang cukup dan hirarki role yang benar.', ephemeral: true });
+            }
+            return;
+        }
+
+        // --- BUTTON: UPDATE VLIST ---
         if (interaction.customId === 'btn_update_vlist') {
             if (!interaction.member.permissions.has('ManageRoles')) {
                 return interaction.reply({ content: '❌ Tombol ini khusus untuk Staff/Admin!', ephemeral: true });
             }
-
             await interaction.deferUpdate();
             const newPayload = await generateVECListPayload(interaction.guild);
             await interaction.message.edit(newPayload);
+            return;
         } 
-        else if (interaction.customId === 'btn_ambil_posisi') {
+        
+        // --- BUTTON: AMBIL POSISI BALAP ---
+        if (interaction.customId === 'btn_ambil_posisi') {
             const messageId = interaction.message.id;
             let eventData = racingEvents.get(messageId);
 
@@ -283,8 +377,11 @@ client.on('interactionCreate', async interaction => {
             } else {
                 await interaction.update({ embeds: [updatedEmbed] });
             }
+            return;
         }
-        else if (interaction.customId === 'btn_join_giveaway') {
+        
+        // --- BUTTON: JOIN GIVEAWAY ---
+        if (interaction.customId === 'btn_join_giveaway') {
             const messageId = interaction.message.id;
             const gwData = activeGiveaways.get(messageId);
 
@@ -330,7 +427,9 @@ client.on('interactionCreate', async interaction => {
                 return interaction.reply({ content: '🎉 Berhasil! Kamu telah terdaftar dalam giveaway ini.', ephemeral: true });
             }
         }
-        else if (interaction.customId.startsWith('btn_close_claim_')) {
+        
+        // --- BUTTON: CLOSE CLAIM GIVEAWAY ---
+        if (interaction.customId.startsWith('btn_close_claim_')) {
             const targetUserId = interaction.customId.replace('btn_close_claim_', '');
             
             if (!interaction.member.permissions.has('ManageRoles') && interaction.user.id !== targetUserId) {
@@ -359,14 +458,16 @@ client.on('interactionCreate', async interaction => {
             }
             return;
         }
-        else if (interaction.customId === 'btn_set_absen') {
+        
+        // --- BUTTON: ABSENSI ---
+        if (interaction.customId === 'btn_set_absen') {
             if (!interaction.member.permissions.has('ManageRoles')) {
                 return interaction.reply({ content: '❌ Tombol ini khusus untuk Admin/Staff!', ephemeral: true });
             }
-
             return interaction.reply({ content: '💡 Silakan gunakan perintah chat **`!p @User [jumlah_poin]`** untuk menambah atau mengurangi poin absen secara instan!', ephemeral: true });
         }
-        else if (interaction.customId === 'btn_update_absen') {
+        
+        if (interaction.customId === 'btn_update_absen') {
             if (!activeAbsensi.has(interaction.message.id)) {
                 activeAbsensi.set(interaction.message.id, { pointsMap: new Map() });
             }
@@ -379,12 +480,14 @@ client.on('interactionCreate', async interaction => {
                 .setDescription(text);
 
             await interaction.message.edit({ embeds: [updatedEmbed] });
+            return;
         }
         return;
     }
 
     if (!interaction.isChatInputCommand()) return;
 
+    // --- SLASH COMMANDS LOGIC ---
     if (interaction.commandName === 'logs') {
         if (!interaction.member.permissions.has('ManageRoles')) {
             return interaction.reply({ content: '❌ Perintah ini khusus untuk Staff/Admin!', ephemeral: true });
@@ -407,7 +510,7 @@ client.on('interactionCreate', async interaction => {
                 extractedFullName = rawDisplayName.split('||')[1].trim();
             }
 
-            const fixedImageUrl = 'https://cdn.discordapp.com/attachments/1533571778897514556/1549804646950768680/file_00000000494481fdaeb69b72f0c375ba-1.jpg?ex=6ab4994d&is=6ab347cd&hm=fc73a31caaf12737c036ac2f9cb1587baa7ec17c386bcb98e1e165a496d5d0d1&';
+            const fixedImageUrl = 'https://cdn.discordapp.com/attachments/1533571778897514556/1549804646950768680/file_00000000494481fdaeb69b72f0c375ba-1.jpg';
 
             const embed = new EmbedBuilder()
                 .setColor('#1a1a1a')
@@ -479,7 +582,6 @@ client.on('interactionCreate', async interaction => {
         }
 
         await interaction.deferReply();
-
         const targetUser = interaction.options.getUser('member');
         const role1 = interaction.options.getRole('role1');
         const role2 = interaction.options.getRole('role2');
@@ -522,7 +624,7 @@ client.on('interactionCreate', async interaction => {
         const reason = interaction.options.getString('reason');
         const note = interaction.options.getString('note');
 
-        const fixedAccImageUrl = 'https://cdn.discordapp.com/attachments/1533571778897514556/1549804646950768680/file_00000000494481fdaeb69b72f0c375ba-1.jpg?ex=6ab4994d&is=6ab347cd&hm=fc73a31caaf12737c036ac2f9cb1587baa7ec17c386bcb98e1e165a496d5d0d1&';
+        const fixedAccImageUrl = 'https://cdn.discordapp.com/attachments/1533571778897514556/1549804646950768680/file_00000000494481fdaeb69b72f0c375ba-1.jpg';
 
         const embedAcc = new EmbedBuilder()
             .setColor('#1a1a1a')
@@ -835,18 +937,18 @@ client.on('interactionCreate', async interaction => {
 
         const embedUpdate = new EmbedBuilder()
             .setColor('#1a1a1a')
-            .setTitle('🚀 V-BOT UPDATE LOGS - [v2.6]')
+            .setTitle('🚀 V-BOT UPDATE LOGS - [v2.7]')
             .setDescription(
                 `Pemberitahuan pembaruan sistem dan peningkatan fitur bot terbaru untuk Velocity Elite Club.\n\n` +
-                `> • **Versi:** v2.6 Stabil\n` +
-                `> • **Kategori:** Fitur Giveaway & Klaim Otomatis\n` +
+                `> • **Versi:** v2.7 Stabil\n` +
+                `> • **Kategori:** Fitur Auto-Detect Recruitment & Registrasi Event\n` +
                 `> • **Diperbarui Oleh:** ${interaction.user}\n\n` +
                 `📋 **Detail Pembaruan:**\n` +
                 `\`\`\`text\n` +
-                `1. Menghapus tag @everyone pada perintah /updatebot.\n` +
-                `2. Penambahan informasi total peserta pada panel Giveaway.\n` +
-                `3. Penambahan tag pemenang otomatis di akhir giveaway dengan arahan ke channel klaim.\n` +
-                `4. Pemberian role tiket klaim otomatis dan tombol 'Tutup Claim' untuk mencopot role.\n` +
+                `1. Bot otomatis mendeteksi form recruitment dan membuat panel ACC/DENY.\n` +
+                `2. Jika di-ACC, nickname otomatis diubah menjadi V-Newbies || (Nama).\n` +
+                `3. Auto-detect form registrasi Event, bot otomatis membuat Thread khusus.\n` +
+                `4. Tombol ACC Event otomatis memberikan prefix Civil || (Nama) dan role event.\n` +
                 `\`\`\``
             )
             .setFooter({ text: `V-BOT System Update | ${new Date().toLocaleDateString('id-ID')}` })
@@ -896,9 +998,80 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
+// --- MESSAGE CREATE (Prefix & Auto-Detect) ---
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
+    // --------------------------------------------------------
+    // FITUR AUTO-DETEKSI RECRUITMENT VEC
+    // --------------------------------------------------------
+    if (message.content.includes(`<@&${HANDLE_RECRUITMENT_ROLE_ID}>`) && message.content.toLowerCase().includes('full name')) {
+        const nameMatch = message.content.match(/Full Name\s*:\s*([^\n]+)/i);
+        
+        if (nameMatch) {
+            const fullName = nameMatch[1].trim();
+            
+            const embedReq = new EmbedBuilder()
+                .setColor('#f1c40f')
+                .setTitle('📋 Recruitment Request Terdeteksi')
+                .setDescription(`Permintaan masuk dari ${message.author}\n**Nama Pendaftar:** ${fullName}\n\nStaff Recruitment silakan evaluasi form di atas dan klik tombol di bawah.`);
+                
+            const row = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`btn_acc_rec_${message.author.id}`)
+                        .setLabel('Accept')
+                        .setStyle(ButtonStyle.Success)
+                        .setEmoji('✅'),
+                    new ButtonBuilder()
+                        .setCustomId(`btn_deny_rec_${message.author.id}`)
+                        .setLabel('Denied')
+                        .setStyle(ButtonStyle.Danger)
+                        .setEmoji('❌')
+                );
+
+            const replyMsg = await message.reply({ embeds: [embedReq], components: [row] });
+            activeRequests.set(`rec_${message.author.id}`, fullName);
+            return;
+        }
+    }
+
+    // --------------------------------------------------------
+    // FITUR AUTO-DETEKSI REGISTER EVENT
+    // --------------------------------------------------------
+    if (message.content.includes(`<@&${EVENT_ADMIN_ROLE_ID}>`) && message.content.toLowerCase().includes('format register')) {
+        const nameMatch = message.content.match(/Full Name\s*:\s*([^\n]+)/i);
+        
+        if (nameMatch) {
+            const fullName = nameMatch[1].trim();
+            
+            const threadName = fullName.length > 20 ? fullName.substring(0, 20) : fullName;
+            const thread = await message.startThread({
+                name: `Event Reg - ${threadName}`,
+                autoArchiveDuration: 1440,
+            });
+
+            const embedEvt = new EmbedBuilder()
+                .setColor('#3498db')
+                .setTitle('🏎️ Event Registration')
+                .setDescription(`Pendaftaran dari ${message.author}\n**Nama:** ${fullName}\n\nAdmin Event silakan verifikasi persyaratan dan klik tombol Accept untuk menyetujui.`);
+
+            const row = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`btn_acc_evt_${message.author.id}`)
+                        .setLabel('Accept Registration')
+                        .setStyle(ButtonStyle.Success)
+                        .setEmoji('🏁')
+                );
+
+            await thread.send({ content: `<@&${EVENT_ADMIN_ROLE_ID}>`, embeds: [embedEvt], components: [row] });
+            activeRequests.set(`evt_${message.author.id}`, fullName);
+            return;
+        }
+    }
+
+    // --- PREFIX COMMANDS ---
     if (message.content.startsWith('!p')) {
         if (!message.member.permissions.has('ManageRoles')) return;
 
@@ -967,7 +1140,7 @@ client.on('messageCreate', async message => {
                 extractedFullName = rawDisplayName.split('||')[1].trim();
             }
 
-            const fixedImageUrl = 'https://cdn.discordapp.com/attachments/1533571778897514556/1549804646950768680/file_00000000494481fdaeb69b72f0c375ba-1.jpg?ex=6ab4994d&is=6ab347cd&hm=fc73a31caaf12737c036ac2f9cb1587baa7ec17c386bcb98e1e165a496d5d0d1&';
+            const fixedImageUrl = 'https://cdn.discordapp.com/attachments/1533571778897514556/1549804646950768680/file_00000000494481fdaeb69b72f0c375ba-1.jpg';
 
             const embedLogs = new EmbedBuilder()
                 .setColor('#1a1a1a')
@@ -1064,14 +1237,12 @@ client.on('messageCreate', async message => {
         }
     }
 
-    // --- PERBAIKAN UTAMA PADA COMMAND !C (PRESISI & ANTI-NABRAK) ---
     if (message.content.startsWith('!c')) {
         if (!message.member.permissions.has('ManageMessages')) return;
 
         const args = message.content.trim().split(/\s+/);
         const command = args[0].toLowerCase();
 
-        // Bot HANYA akan mengeksekusi clear chat jika command persis bernilai '!c'
         if (command === '!c') {
             const amount = parseInt(args[1]);
 
