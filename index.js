@@ -39,7 +39,7 @@ const TRACKED_ROLES = {
 const racingEvents = new Map();
 const activeGiveaways = new Map();
 const activeAbsensi = new Map();
-const activeRoleLimits = new Map(); // Memori untuk sistem Auto-Lock & Tracker
+const activeRoleLimits = new Map();
 
 // --- DAFTAR SLASH COMMANDS ---
 const commands = [
@@ -54,12 +54,12 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('roleadd')
-        .setDescription('Tambah role dan/atau hapus role lama member sekaligus (Tukar Pangkat)')
+        .setDescription('Tambah role dan/atau hapus role lama member sekaligus')
         .addUserOption(option => option.setName('member').setDescription('Pilih member target').setRequired(true))
         .addRoleOption(option => option.setName('add_role1').setDescription('Role yang ingin diberikan (wajib)').setRequired(true))
-        .addRoleOption(option => option.setName('add_role2').setDescription('Role tambahan yang ingin diberikan (opsional)').setRequired(false))
-        .addRoleOption(option => option.setName('remove_role1').setDescription('Role lama yang ingin dicopot (opsional)').setRequired(false))
-        .addRoleOption(option => option.setName('remove_role2').setDescription('Role lama kedua yang ingin dicopot (opsional)').setRequired(false)),
+        .addRoleOption(option => option.setName('add_role2').setDescription('Role tambahan yang ingin diberikan').setRequired(false))
+        .addRoleOption(option => option.setName('remove_role1').setDescription('Role lama yang ingin dicopot').setRequired(false))
+        .addRoleOption(option => option.setName('remove_role2').setDescription('Role lama kedua yang ingin dicopot').setRequired(false)),
 
     new SlashCommandBuilder()
         .setName('unrole')
@@ -99,6 +99,11 @@ const commands = [
         .setName('setposisi')
         .setDescription('Buat panel undian posisi grid balap MotoGP')
         .addIntegerOption(option => option.setName('max_posisi').setDescription('Jumlah maksimal posisi grid (misal: 7)').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('grupposisi')
+        .setDescription('Buat undian posisi grid balap dibagi menjadi Grup A dan Grup B')
+        .addIntegerOption(option => option.setName('max_posisi').setDescription('Total jumlah peserta (akan otomatis dibagi 2 grup)').setRequired(true)),
 
     new SlashCommandBuilder()
         .setName('giveaway')
@@ -152,8 +157,7 @@ async function generateVECListPayload(guild) {
         return role.members.map(m => {
             const fullName = m.displayName;
             if (fullName.includes('||')) {
-                const cleanName = fullName.split('||')[1].trim();
-                return `- ${cleanName}`;
+                return `- ${fullName.split('||')[1].trim()}`;
             }
             return `- ${fullName}`;
         }).join('\n');
@@ -172,19 +176,8 @@ async function generateVECListPayload(guild) {
         `<@&${TRACKED_ROLES.photographer}>\n${getMembersByRole(TRACKED_ROLES.photographer)}\n\n` +
         `Last Updated:\n*${currentDate}*`;
 
-    const embed = new EmbedBuilder()
-        .setColor('#1a1a1a')
-        .setTitle('LIST ALL MEMBER VEC')
-        .setDescription(descriptionText);
-
-    const row = new ActionRowBuilder()
-        .addComponents(
-            new ButtonBuilder()
-                .setCustomId('btn_update_vlist')
-                .setLabel('Update List')
-                .setStyle(ButtonStyle.Primary)
-                .setEmoji('🔁')
-        );
+    const embed = new EmbedBuilder().setColor('#1a1a1a').setTitle('LIST ALL MEMBER VEC').setDescription(descriptionText);
+    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('btn_update_vlist').setLabel('Update List').setStyle(ButtonStyle.Primary).setEmoji('🔁'));
 
     return { embeds: [embed], components: [row] };
 }
@@ -208,15 +201,7 @@ async function generateAbsensiText(guild, absenPointsMap) {
     }
 
     const totalCount = membersArray.length;
-    const currentDate = new Date().toLocaleDateString('id-ID');
-
-    const fullText = 
-        `__**LIST ABSENSI VELOCITY ELITE CLUB**__\n` +
-        `${listLines}\n` +
-        `__**ALL MEMBER LIST : ${totalCount}**__\n` +
-        `*Last Update ${currentDate}*`;
-
-    return { text: fullText, total: totalCount };
+    return { text: `__**LIST ABSENSI VELOCITY ELITE CLUB**__\n${listLines}\n__**ALL MEMBER LIST : ${totalCount}**__\n*Last Update${new Date().toLocaleDateString('id-ID')}*`, total: totalCount };
 }
 
 // FUNGSI UTAMA: Mengurus Target Kuota, Bumping Pesan Sisa, dan Auto-Lock
@@ -235,7 +220,6 @@ async function handleRoleUpdate(guild, roleId) {
         try {
             const channel = await guild.channels.fetch(config.channelId);
             
-            // Hapus pesan tracker sisa kuota (jika ada) karena sudah penuh
             if (config.trackerMsgId) {
                 try {
                     const oldTracker = await channel.messages.fetch(config.trackerMsgId);
@@ -246,12 +230,7 @@ async function handleRoleUpdate(guild, roleId) {
             await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: false });
             
             const memberLines = role.members.map(m => `> • ${m.user.toString()}`).join('\n');
-            const currentDate = new Date().toLocaleDateString('id-ID');
-            const listText = 
-                `__**LIST MEMBER ROLE ${role.name.toUpperCase()}**__\n` +
-                `${memberLines}\n\n` +
-                `__**ALL MEMBER LIST : ${role.members.size} /${config.limit}**__\n` +
-                `*Last Update ${currentDate}*`;
+            const listText = `__**LIST MEMBER ROLE ${role.name.toUpperCase()}**__\n${memberLines}\n\n__**ALL MEMBER LIST :${role.members.size} / ${config.limit}**__\n*Last Update${new Date().toLocaleDateString('id-ID')}*`;
 
             const embed = new EmbedBuilder()
                 .setColor('#e74c3c')
@@ -262,7 +241,6 @@ async function handleRoleUpdate(guild, roleId) {
             
             await channel.send({ embeds: [embed] });
 
-            // Hapus Config Database dari channel staff
             if (config.configMsgId && config.configChannelId) {
                 try {
                     const cfgChannel = await guild.channels.fetch(config.configChannelId);
@@ -272,16 +250,13 @@ async function handleRoleUpdate(guild, roleId) {
             }
             
             activeRoleLimits.delete(roleId);
-        } catch (e) {
-            console.error("Gagal auto-lock channel:", e);
-        }
+        } catch (e) { console.error("Gagal auto-lock channel:", e); }
     } 
     // Jika Kuota Belum Penuh -> Update Pesan Tracker (Bump ke bawah)
     else {
         try {
             const channel = await guild.channels.fetch(config.channelId);
             
-            // Hapus pesan lama agar bot bisa kirim baru (bump ke paling bawah chat)
             if (config.trackerMsgId) {
                 try {
                     const oldTracker = await channel.messages.fetch(config.trackerMsgId);
@@ -289,14 +264,9 @@ async function handleRoleUpdate(guild, roleId) {
                 } catch (e) {}
             }
 
-            // Gunakan Embed agar mention role tidak berbunyi ping!
-            const trackerEmbed = new EmbedBuilder()
-                .setColor('#f1c40f')
-                .setDescription(`⏳ **SISA KUOTA:** Membutuhkan **-${remaining}**${role} lagi.`);
-            
+            const trackerEmbed = new EmbedBuilder().setColor('#f1c40f').setDescription(`⏳ **SISA KUOTA:** Membutuhkan **-${remaining}**${role} lagi.`);
             const newTracker = await channel.send({ embeds: [trackerEmbed] });
             
-            // Update ID Tracker baru ke memori & config pesan
             config.trackerMsgId = newTracker.id;
             activeRoleLimits.set(roleId, config);
 
@@ -306,19 +276,12 @@ async function handleRoleUpdate(guild, roleId) {
                     const configMsg = await cfgChannel.messages.fetch(config.configMsgId);
                     if (configMsg) {
                         await configMsg.edit(
-                            `⚙️ **[MAXROLE-CONFIG]**\n` +
-                            `RoleID: ${roleId}\n` +
-                            `ChannelID: ${config.channelId}\n` +
-                            `Limit: ${config.limit}\n` +
-                            `TrackerMsgID: ${config.trackerMsgId}\n` +
-                            `*(Catatan Sistem: Jangan hapus pesan ini agar target lock tidak hilang saat bot restart!)*`
+                            `⚙️ **[MAXROLE-CONFIG]**\nRoleID: ${roleId}\nChannelID:${config.channelId}\nLimit: ${config.limit}\nTrackerMsgID:${config.trackerMsgId}\n*(Catatan Sistem: Jangan hapus pesan ini agar target lock tidak hilang saat bot restart!)*`
                         );
                     }
                 } catch (e) {}
             }
-        } catch (e) {
-            console.error("Gagal update tracker channel:", e);
-        }
+        } catch (e) { console.error("Gagal update tracker channel:", e); }
     }
 }
 
@@ -330,7 +293,6 @@ client.once('ready', async () => {
         await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
         console.log('Berhasil mendaftarkan semua slash commands!');
 
-        // Scan channel Text & Thread untuk memulihkan Maxrole Configs & Tracker
         client.guilds.cache.forEach(async guild => {
             const textChannels = guild.channels.cache.filter(c => c.isTextBased());
             for (const [id, channel] of textChannels) {
@@ -354,20 +316,17 @@ client.once('ready', async () => {
                             }
                         }
                     });
-                } catch (e) { /* Abaikan channel yang bot tidak punya akses baca */ }
+                } catch (e) {}
             }
         });
-        console.log(`Memori dipulihkan untuk tugas Maxrole.`);
-    } catch (error) {
-        console.error(error);
-    }
+    } catch (error) { console.error(error); }
 });
 
 // --- INTERACTION CREATE (Tombol & Slash Commands) ---
 client.on('interactionCreate', async interaction => {
     if (interaction.isButton()) {
         
-        // --- BUTTON: AUTO RECRUITMENT ACCEPT (STATELESS) ---
+        // --- BUTTON: AUTO RECRUITMENT ACCEPT ---
         if (interaction.customId.startsWith('btn_acc_rec_')) {
             const targetId = interaction.customId.replace('btn_acc_rec_', '');
             if (!interaction.member.roles.cache.has(HANDLE_RECRUITMENT_ROLE_ID) && !interaction.member.permissions.has('ManageRoles')) {
@@ -387,7 +346,6 @@ client.on('interactionCreate', async interaction => {
                     .setDescription(`✅ **DITERIMA** oleh ${interaction.user}\nNickname telah diubah otomatis menjadi: \`V-Newbies || ${fullName}\``);
                 await interaction.update({ embeds: [updatedEmbed], components: [] });
             } catch (e) {
-                console.error(e);
                 await interaction.reply({ content: '❌ Gagal mengubah nickname. Pastikan role bot berada **di atas** role user tersebut!', ephemeral: true });
             }
             return;
@@ -398,14 +356,12 @@ client.on('interactionCreate', async interaction => {
             if (!interaction.member.roles.cache.has(HANDLE_RECRUITMENT_ROLE_ID) && !interaction.member.permissions.has('ManageRoles')) {
                 return interaction.reply({ content: '❌ Anda tidak memiliki izin!', ephemeral: true });
             }
-            const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
-                .setColor('#e74c3c')
-                .setDescription(`❌ **DITOLAK** oleh ${interaction.user}`);
+            const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0]).setColor('#e74c3c').setDescription(`❌ **DITOLAK** oleh ${interaction.user}`);
             await interaction.update({ embeds: [updatedEmbed], components: [] });
             return;
         }
 
-        // --- BUTTON: AUTO EVENT ACCEPT (STATELESS) ---
+        // --- BUTTON: AUTO EVENT ACCEPT ---
         if (interaction.customId.startsWith('btn_acc_evt_')) {
             const targetId = interaction.customId.replace('btn_acc_evt_', '');
             if (!interaction.member.roles.cache.has(EVENT_ADMIN_ROLE_ID) && !interaction.member.permissions.has('ManageRoles')) {
@@ -427,17 +383,13 @@ client.on('interactionCreate', async interaction => {
                     .setDescription(`🏁 **PENDAFTARAN DITERIMA** oleh ${interaction.user}\n\n• Role <@&${EVENT_ACCEPTED_ROLE_ID}> telah diberikan.\n• Nickname diubah menjadi: \`Civil || ${fullName}\``);
                 await interaction.update({ embeds: [updatedEmbed], components: [] });
 
-                // Panggil sistem pembaruan tracker sisa & lock
                 await handleRoleUpdate(interaction.guild, EVENT_ACCEPTED_ROLE_ID);
-
             } catch (e) {
-                console.error(e);
                 await interaction.reply({ content: '❌ Gagal mengubah nickname/role. Pastikan bot memiliki izin yang cukup.', ephemeral: true });
             }
             return;
         }
 
-        // --- SISA TOMBOL LAINNYA ---
         if (interaction.customId === 'btn_update_vlist') {
             if (!interaction.member.permissions.has('ManageRoles')) return interaction.reply({ content: '❌ Tombol khusus Staff/Admin!', ephemeral: true });
             await interaction.deferUpdate();
@@ -446,11 +398,12 @@ client.on('interactionCreate', async interaction => {
             return;
         } 
         
+        // --- BUTTON: AMBIL POSISI (NORMAL) ---
         if (interaction.customId === 'btn_ambil_posisi') {
             const messageId = interaction.message.id;
             let eventData = racingEvents.get(messageId);
 
-            if (!eventData) return interaction.reply({ content: '❌ Sesi undian posisi balap ini sudah berakhir!', ephemeral: true });
+            if (!eventData || eventData.type === 'group') return interaction.reply({ content: '❌ Sesi undian posisi balap ini sudah berakhir!', ephemeral: true });
 
             const userId = interaction.user.id;
             if (eventData.results.has(userId)) return interaction.reply({ content: `⚠️ Kamu sudah mendapatkan **Posisi Grid #${eventData.results.get(userId)}**!`, ephemeral: true });
@@ -462,7 +415,6 @@ client.on('interactionCreate', async interaction => {
 
             let resultsText = '';
             const sortedResults = [...eventData.results.entries()].sort((a, b) => a[1] - b[1]);
-            
             for (const [uId, pos] of sortedResults) {
                 const memberObj = await interaction.guild.members.fetch(uId).catch(() => null);
                 const memberName = memberObj ? (memberObj.displayName.includes('||') ? memberObj.displayName.split('||')[1].trim() : memberObj.displayName) : 'Unknown';
@@ -479,24 +431,80 @@ client.on('interactionCreate', async interaction => {
             if (isFull) {
                 const disabledRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('btn_grid_full').setLabel('Grid Full').setStyle(ButtonStyle.Secondary).setDisabled(true).setEmoji('🔒'));
                 await interaction.update({ embeds: [updatedEmbed], components: [disabledRow] });
+                await interaction.channel.send(`🏁 **FINAL GRID STARTING LINE - VEC RACING TOURNAMENT** 🏁\n\n${resultsText}`);
+            } else {
+                await interaction.update({ embeds: [updatedEmbed] });
+            }
+            return;
+        }
 
-                let finalListText = `🏁 **FINAL GRID STARTING LINE - VEC RACING TOURNAMENT** 🏁\n\n`;
-                for (const [uId, pos] of sortedResults) {
-                    const memberObj = await interaction.guild.members.fetch(uId).catch(() => null);
+        // --- BUTTON: AMBIL POSISI GRUP (BARU) ---
+        if (interaction.customId === 'btn_ambil_grupposisi') {
+            const messageId = interaction.message.id;
+            let eventData = racingEvents.get(messageId);
+
+            if (!eventData || eventData.type !== 'group') return interaction.reply({ content: '❌ Sesi undian posisi balap grup ini sudah berakhir!', ephemeral: true });
+
+            const userId = interaction.user.id;
+            if (eventData.results.has(userId)) {
+                const userSlot = eventData.results.get(userId);
+                return interaction.reply({ content: `⚠️ Kamu sudah mendapatkan **Grup ${userSlot.group} - Posisi Grid #${userSlot.pos}**!`, ephemeral: true });
+            }
+            if (eventData.availableSlots.length === 0) return interaction.reply({ content: '❌ Maaf, semua posisi grid dan grup sudah habis diambil!', ephemeral: true });
+
+            const randomIndex = Math.floor(Math.random() * eventData.availableSlots.length);
+            const assignedSlot = eventData.availableSlots.splice(randomIndex, 1)[0];
+            eventData.results.set(userId, assignedSlot);
+
+            const resultsA = [];
+            const resultsB = [];
+            for (const [uId, slot] of eventData.results.entries()) {
+                if (slot.group === 'A') resultsA.push({ uId, pos: slot.pos });
+                else resultsB.push({ uId, pos: slot.pos });
+            }
+            resultsA.sort((a, b) => a.pos - b.pos);
+            resultsB.sort((a, b) => a.pos - b.pos);
+
+            let resultsText = '';
+            if (resultsA.length > 0) {
+                resultsText += `**🟡 GRUP A**\n`;
+                for (const r of resultsA) {
+                    const memberObj = await interaction.guild.members.fetch(r.uId).catch(() => null);
                     const memberName = memberObj ? (memberObj.displayName.includes('||') ? memberObj.displayName.split('||')[1].trim() : memberObj.displayName) : 'Unknown';
-                    finalListText += `• **Grid #${pos}** :${memberName}\n`;
+                    resultsText += `• **Grid #${r.pos}** :${memberName}\n`;
                 }
-                await interaction.channel.send(finalListText);
+            }
+            if (resultsB.length > 0) {
+                resultsText += `\n**🔵 GRUP B**\n`;
+                for (const r of resultsB) {
+                    const memberObj = await interaction.guild.members.fetch(r.uId).catch(() => null);
+                    const memberName = memberObj ? (memberObj.displayName.includes('||') ? memberObj.displayName.split('||')[1].trim() : memberObj.displayName) : 'Unknown';
+                    resultsText += `• **Grid #${r.pos}** :${memberName}\n`;
+                }
+            }
+            if (!resultsText) resultsText = '_Belum ada yang mengambil posisi._';
+
+            const isFull = eventData.availableSlots.length === 0;
+            const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+                .setFields([
+                    { name: '🏁 Status Undian', value: isFull ? '✅ **Semua posisi & grup sudah terisi!**' : `Sisa posisi tersedia: **${eventData.availableSlots.length}** dari ${eventData.maxPosisi}`, inline: false },
+                    { name: '📋 Daftar Grid & Grup Sementara', value: resultsText, inline: false }
+                ]);
+
+            if (isFull) {
+                const disabledRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('btn_grid_full').setLabel('Grid & Grup Full').setStyle(ButtonStyle.Secondary).setDisabled(true).setEmoji('🔒'));
+                await interaction.update({ embeds: [updatedEmbed], components: [disabledRow] });
+                await interaction.channel.send(`🏁 **FINAL GRID & GROUP - VEC RACING TOURNAMENT** 🏁\n\n${resultsText}`);
             } else {
                 await interaction.update({ embeds: [updatedEmbed] });
             }
             return;
         }
         
+        // --- SISA TOMBOL GIVEAWAY & ABSENSI ---
         if (interaction.customId === 'btn_join_giveaway') {
             const messageId = interaction.message.id;
             const gwData = activeGiveaways.get(messageId);
-
             if (!gwData || !gwData.active) return interaction.reply({ content: '❌ Sesi giveaway ini sudah berakhir atau ditutup!', ephemeral: true });
 
             const userId = interaction.user.id;
@@ -521,17 +529,13 @@ client.on('interactionCreate', async interaction => {
         
         if (interaction.customId.startsWith('btn_close_claim_')) {
             const targetUserId = interaction.customId.replace('btn_close_claim_', '');
-            if (!interaction.member.permissions.has('ManageRoles') && interaction.user.id !== targetUserId) return interaction.reply({ content: '❌ Tombol ini hanya dapat digunakan oleh Admin atau pemenang terkait!', ephemeral: true });
-
+            if (!interaction.member.permissions.has('ManageRoles') && interaction.user.id !== targetUserId) return interaction.reply({ content: '❌ Tombol ini hanya untuk Admin atau pemenang!', ephemeral: true });
             try {
                 const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
                 if (targetMember && targetMember.roles.cache.has(GIVEAWAY_ROLE_ID)) await targetMember.roles.remove(GIVEAWAY_ROLE_ID);
-
                 const disabledRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('btn_closed').setLabel('Claim Ditutup / Selesai').setStyle(ButtonStyle.Secondary).setDisabled(true).setEmoji('🔒'));
                 await interaction.update({ content: `🔒 Claim telah ditutup oleh ${interaction.user}. Role tiket klaim dicabut.`, components: [disabledRow] });
-            } catch (e) {
-                await interaction.reply({ content: '❌ Gagal mencopot role pemenang.', ephemeral: true });
-            }
+            } catch (e) { await interaction.reply({ content: '❌ Gagal mencopot role pemenang.', ephemeral: true }); }
             return;
         }
         
@@ -540,7 +544,6 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId === 'btn_update_absen') {
             if (!activeAbsensi.has(interaction.message.id)) activeAbsensi.set(interaction.message.id, { pointsMap: new Map() });
             const absenData = activeAbsensi.get(interaction.message.id);
-
             await interaction.deferUpdate();
             const { text } = await generateAbsensiText(interaction.guild, absenData.pointsMap);
             const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0]).setDescription(text);
@@ -558,32 +561,18 @@ client.on('interactionCreate', async interaction => {
         await interaction.guild.members.fetch({ force: true });
         
         const role = interaction.guild.roles.cache.get(targetRole.id);
-        if (!role || role.members.size === 0) {
-            return interaction.editReply({ content: `❌ Tidak ada member yang saat ini memiliki role ${targetRole}.` });
-        }
+        if (!role || role.members.size === 0) return interaction.editReply({ content: `❌ Tidak ada member yang memiliki role ${targetRole}.` });
 
         const memberLines = role.members.map(m => `> • ${m.user.toString()}`).join('\n');
-        const totalCount = role.members.size;
-        const currentDate = new Date().toLocaleDateString('id-ID');
+        const resultText = `__**LIST MEMBER ROLE ${targetRole.name.toUpperCase()}**__\n${memberLines}\n\n__**ALL MEMBER LIST : ${role.members.size}**__\n*Last Update${new Date().toLocaleDateString('id-ID')}*`;
 
-        const resultText = 
-            `__**LIST MEMBER ROLE ${targetRole.name.toUpperCase()}**__\n` +
-            `${memberLines}\n\n` +
-            `__**ALL MEMBER LIST : ${totalCount}**__\n` +
-            `*Last Update ${currentDate}*`;
-
-        if (resultText.length > 2000) {
-            return interaction.editReply({ content: `✅ Ditemukan ${totalCount} member, namun teks terlalu panjang untuk dikirim dalam 1 pesan. Cek manual di tab server.` });
-        }
-
+        if (resultText.length > 2000) return interaction.editReply({ content: `✅ Ditemukan ${role.members.size} member, teks terlalu panjang untuk dikirim. Cek manual di server.` });
         await interaction.editReply({ content: resultText });
         return;
     }
 
     if (interaction.commandName === 'maxrole') {
-        if (!interaction.member.permissions.has('ManageRoles') && !interaction.member.permissions.has('ManageChannels')) {
-            return interaction.reply({ content: '❌ Perintah ini khusus untuk Admin/Staff!', ephemeral: true });
-        }
+        if (!interaction.member.permissions.has('ManageRoles') && !interaction.member.permissions.has('ManageChannels')) return interaction.reply({ content: '❌ Perintah khusus Admin/Staff!', ephemeral: true });
 
         await interaction.deferReply({ ephemeral: true });
         const targetRole = interaction.options.getRole('role');
@@ -591,44 +580,29 @@ client.on('interactionCreate', async interaction => {
         const limit = interaction.options.getInteger('limit');
 
         let configMsgId = null;
-        let configChannelId = interaction.channel.id;
-
         try {
-            // Trik Database: Kirim pesan config ke channel tempat perintah dijalankan (ditambahkan trackerMsg = null dulu)
             const configMsg = await interaction.channel.send(
-                `⚙️ **[MAXROLE-CONFIG]**\n` +
-                `RoleID: ${targetRole.id}\n` +
-                `ChannelID: ${targetChannel.id}\n` +
-                `Limit: ${limit}\n` +
-                `TrackerMsgID: null\n` +
-                `*(Catatan Sistem: Jangan hapus pesan ini agar target lock tidak hilang saat bot restart!)*`
+                `⚙️ **[MAXROLE-CONFIG]**\nRoleID: ${targetRole.id}\nChannelID: ${targetChannel.id}\nLimit:${limit}\nTrackerMsgID: null\n*(Catatan Sistem: Jangan hapus pesan ini agar target lock tidak hilang saat bot restart!)*`
             );
             configMsgId = configMsg.id;
-        } catch (e) { console.log("Gagal mengirim config."); }
+        } catch (e) {}
 
-        activeRoleLimits.set(targetRole.id, { channelId: targetChannel.id, limit: limit, configMsgId: configMsgId, configChannelId: configChannelId, trackerMsgId: null });
-        await interaction.editReply({ content: `✅ **Sistem Lock Otomatis Aktif secara Permanen!**\nBot akan mengawasi role ${targetRole}.\nJika jumlahnya mencapai **${limit} member**, bot otomatis me-lock channel <#${targetChannel.id}>.` });
+        activeRoleLimits.set(targetRole.id, { channelId: targetChannel.id, limit: limit, configMsgId: configMsgId, configChannelId: interaction.channel.id, trackerMsgId: null });
+        await interaction.editReply({ content: `✅ **Sistem Lock Otomatis Aktif!**\nBot akan mengawasi role ${targetRole}.\nJika mencapai **${limit} member**, bot otomatis me-lock channel <#${targetChannel.id}>.` });
 
-        // Cek langsung sisa kuota dan buat Embed hitungan mundur pertama di target channel
         await handleRoleUpdate(interaction.guild, targetRole.id);
         return;
     }
 
     if (interaction.commandName === 'resetmaxrole') {
-        if (!interaction.member.permissions.has('ManageRoles') && !interaction.member.permissions.has('ManageChannels')) {
-            return interaction.reply({ content: '❌ Perintah ini khusus untuk Admin/Staff!', ephemeral: true });
-        }
+        if (!interaction.member.permissions.has('ManageRoles') && !interaction.member.permissions.has('ManageChannels')) return interaction.reply({ content: '❌ Perintah khusus Admin/Staff!', ephemeral: true });
 
         await interaction.deferReply({ ephemeral: true });
         const targetRole = interaction.options.getRole('role');
 
-        if (!activeRoleLimits.has(targetRole.id)) {
-            return interaction.editReply({ content: `⚠️ Tidak ada konfigurasi auto-lock aktif untuk role ${targetRole}.` });
-        }
+        if (!activeRoleLimits.has(targetRole.id)) return interaction.editReply({ content: `⚠️ Tidak ada konfigurasi auto-lock aktif untuk role ${targetRole}.` });
 
         const config = activeRoleLimits.get(targetRole.id);
-
-        // Hapus pesan config dari channel tempat admin membuatnya
         if (config.configMsgId && config.configChannelId) {
             try {
                 const cfgChannel = await interaction.guild.channels.fetch(config.configChannelId);
@@ -636,8 +610,6 @@ client.on('interactionCreate', async interaction => {
                 if (configMsg) await configMsg.delete();
             } catch (e) {}
         }
-        
-        // Hapus pesan tracker sisa kuota (jika ada) di channel target
         if (config.trackerMsgId && config.channelId) {
             try {
                 const trChannel = await interaction.guild.channels.fetch(config.channelId);
@@ -647,12 +619,12 @@ client.on('interactionCreate', async interaction => {
         }
 
         activeRoleLimits.delete(targetRole.id);
-        await interaction.editReply({ content: `✅ **Berhasil di-reset!**\nSistem auto-lock dan tracker sisa kuota untuk role ${targetRole} telah dibatalkan & dihapus.` });
+        await interaction.editReply({ content: `✅ **Berhasil di-reset!**\nSistem auto-lock dan tracker sisa kuota untuk role ${targetRole} dibatalkan & dihapus.` });
         return;
     }
 
     if (interaction.commandName === 'logs') {
-        if (!interaction.member.permissions.has('ManageRoles')) return interaction.reply({ content: '❌ Perintah khusus Staff/Admin!', ephemeral: true });
+        if (!interaction.member.permissions.has('ManageRoles')) return interaction.reply({ content: '❌ Perintah khusus Staff!', ephemeral: true });
         
         const memberUser = interaction.options.getUser('member');
         const status = interaction.options.getString('status');
@@ -662,28 +634,15 @@ client.on('interactionCreate', async interaction => {
 
         try {
             const targetMember = await interaction.guild.members.fetch(memberUser.id);
-            const rawDisplayName = targetMember.displayName;
-            let extractedFullName = rawDisplayName.includes('||') ? rawDisplayName.split('||')[1].trim() : rawDisplayName;
+            let extractedFullName = targetMember.displayName.includes('||') ? targetMember.displayName.split('||')[1].trim() : targetMember.displayName;
             const fixedImageUrl = 'https://cdn.discordapp.com/attachments/1533571778897514556/1549804646950768680/file_00000000494481fdaeb69b72f0c375ba-1.jpg';
 
-            const embed = new EmbedBuilder()
-                .setColor('#1a1a1a')
-                .setTitle('VEC LOGS')
-                .setDescription('**LOGS VELOCITY ELITE CLUB**\n' +
-                    `> • Full Name: **${extractedFullName}**\n` +
-                    `> • Discord: **${memberUser}**\n` +
-                    `> • Status: **${status}**\n` +
-                    `> • Logs To: **${logsTo}**\n` +
-                    `> • Reason: **${reason}**\n` +
-                    `> • Note: **${note}**\n\n` +
-                    `> • Logs By: **${interaction.user}**`
-                )
-                .setImage(fixedImageUrl)
-                .setFooter({ text: `Signed By ${interaction.user.username}` })
-                .setTimestamp();
+            const embed = new EmbedBuilder().setColor('#1a1a1a').setTitle('VEC LOGS')
+                .setDescription(`**LOGS VELOCITY ELITE CLUB**\n> • Full Name: **${extractedFullName}**\n> • Discord: **${memberUser}**\n> • Status: **${status}**\n> • Logs To: **${logsTo}**\n> • Reason: **${reason}**\n> • Note: **${note}**\n\n> • Logs By: **${interaction.user}**`)
+                .setImage(fixedImageUrl).setFooter({ text: `Signed By ${interaction.user.username}` }).setTimestamp();
 
             await interaction.reply({ embeds: [embed] });
-        } catch (error) { await interaction.reply({ content: '❌ Terjadi kesalahan saat memproses log member.', ephemeral: true }); }
+        } catch (error) { await interaction.reply({ content: '❌ Terjadi kesalahan.', ephemeral: true }); }
         return;
     }
 
@@ -710,12 +669,10 @@ client.on('interactionCreate', async interaction => {
             if (removedList.length > 0) descText += `• **Role Dicopot:** ${removedList.join(' & ')}\n`;
             descText += `\nDiproses oleh ${interaction.user}`;
 
-            const embedRole = new EmbedBuilder().setColor('#1a1a1a').setDescription(descText).setTimestamp();
-            await interaction.reply({ embeds: [embedRole] });
+            await interaction.reply({ embeds: [new EmbedBuilder().setColor('#1a1a1a').setDescription(descText).setTimestamp()] });
 
             if (addRole1) await handleRoleUpdate(interaction.guild, addRole1.id);
             if (addRole2) await handleRoleUpdate(interaction.guild, addRole2.id);
-
         } catch (error) { console.error(error); }
         return;
     }
@@ -733,13 +690,10 @@ client.on('interactionCreate', async interaction => {
             if (role2) await member.roles.remove(role2);
 
             let removedRolesText = role2 ? `${role1} &${role2}` : `${role1}`;
-            const embedRemove = new EmbedBuilder().setColor('#e74c3c').setDescription(`🗑️ **Role Dicopot / Dihapus**\n\n• **Server Role / Target:** ${removedRolesText}\n• **Berhasil Dicopot Dari:** ${targetUser}\n\nDicopot oleh${interaction.user}`).setTimestamp();
-            await interaction.editReply({ embeds: [embedRemove] });
+            await interaction.editReply({ embeds: [new EmbedBuilder().setColor('#e74c3c').setDescription(`🗑️ **Role Dicopot / Dihapus**\n\n• **Server Role / Target:** ${removedRolesText}\n• **Berhasil Dicopot Dari:** ${targetUser}\n\nDicopot oleh${interaction.user}`).setTimestamp()] });
             
-            // Call handleRoleUpdate in case we removed a tracked role, it will bump tracker and increase slot!
             if (role1) await handleRoleUpdate(interaction.guild, role1.id);
             if (role2) await handleRoleUpdate(interaction.guild, role2.id);
-
         } catch (error) { await interaction.editReply({ content: '❌ Gagal mencopot role. Pastikan hirarki bot di atas member.' }); }
         return;
     }
@@ -758,8 +712,7 @@ client.on('interactionCreate', async interaction => {
             .setColor('#1a1a1a')
             .setTitle('Velocity Elite Club\nApplication Result')
             .setDescription(`Dear, Mr/Mrs ${applicant}\n\n*Application has been reviewed successfully.*\n\n> • **Applicant:** ${applicant}\n> • **Status:** ${status}\n> • **Role:** ${role}\n> • **Reason:** ${reason}\n> • **Note:** ${note}\n\nRegards :${interaction.user}`)
-            .setImage(fixedAccImageUrl)
-            .setTimestamp();
+            .setImage(fixedAccImageUrl).setTimestamp();
 
         await interaction.reply({ embeds: [embedAcc] });
         if (role) await handleRoleUpdate(interaction.guild, role.id);
@@ -769,7 +722,6 @@ client.on('interactionCreate', async interaction => {
     if (interaction.commandName === 'teks') {
         if (!interaction.member.permissions.has('Administrator') && !interaction.member.permissions.has('ManageMessages')) return interaction.reply({ content: '❌ Perintah khusus Staff!', ephemeral: true });
 
-        const judulUtama = interaction.options.getString('judul_utama');
         const optFields = [
             { desk: interaction.options.getString('deskripsi_1'), foto: interaction.options.getString('foto_2') },
             { desk: interaction.options.getString('deskripsi_2'), foto: interaction.options.getString('foto_3') },
@@ -777,7 +729,7 @@ client.on('interactionCreate', async interaction => {
             { desk: interaction.options.getString('deskripsi_4'), foto: interaction.options.getString('foto_5') }
         ];
 
-        const embedsList = [new EmbedBuilder().setColor('#1a1a1a').setDescription(`**${judulUtama}**`)];
+        const embedsList = [new EmbedBuilder().setColor('#1a1a1a').setDescription(`**${interaction.options.getString('judul_utama')}**`)];
         const foto1 = interaction.options.getString('foto_1');
         if (foto1) embedsList[0].setImage(foto1);
 
@@ -798,33 +750,56 @@ client.on('interactionCreate', async interaction => {
         const payload = await generateVECListPayload(interaction.guild);
         const channel = await interaction.guild.channels.fetch(TARGET_CHANNEL_ID);
         if (channel) await channel.send(payload);
-        await interaction.reply({ content: '✅ Panel list berhasil dikirim ke channel target!', ephemeral: true });
+        await interaction.reply({ content: '✅ Panel list dikirim!', ephemeral: true });
         return;
     }
 
     if (interaction.commandName === 'setposisi') {
         if (!interaction.member.permissions.has('ManageRoles')) return interaction.reply({ content: '❌ Perintah khusus Staff!', ephemeral: true });
-
         const maxPosisi = interaction.options.getInteger('max_posisi');
-        if (maxPosisi < 1 || maxPosisi > 50) return interaction.reply({ content: '❌ Masukkan angka posisi antara 1 sampai 50!', ephemeral: true });
+        if (maxPosisi < 1 || maxPosisi > 50) return interaction.reply({ content: '❌ Masukkan angka 1 sampai 50!', ephemeral: true });
 
         const availableNumbers = Array.from({ length: maxPosisi }, (_, i) => i + 1);
-        const embed = new EmbedBuilder()
-            .setColor('#1a1a1a')
-            .setTitle('🏁 VEC RACING TOURNAMENT - QUALIFYING')
-            .setDescription('Silakan klik tombol **"Ambil Posisi Grid"** di bawah ini untuk mendapatkan nomor urutan barisan balap secara acak!')
+        const embed = new EmbedBuilder().setColor('#1a1a1a').setTitle('🏁 VEC RACING TOURNAMENT - QUALIFYING')
+            .setDescription('Silakan klik tombol **"Ambil Posisi Grid"** di bawah ini!')
             .addFields(
                 { name: '🏁 Status Undian', value: `Sisa posisi tersedia: **${maxPosisi}** dari ${maxPosisi}`, inline: false },
                 { name: '📋 Daftar Posisi Grid Sementara', value: '_Belum ada yang mengambil posisi._', inline: false }
-            )
-            .setFooter({ text: `Dibuat oleh ${interaction.user.username}` })
-            .setTimestamp();
+            ).setFooter({ text: `Dibuat oleh ${interaction.user.username}` }).setTimestamp();
 
         const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('btn_ambil_posisi').setLabel('Ambil Posisi Grid').setStyle(ButtonStyle.Success).setEmoji('🏎️'));
-
         const sentMessage = await interaction.channel.send({ embeds: [embed], components: [row] });
-        racingEvents.set(sentMessage.id, { maxPosisi: maxPosisi, availableNumbers: availableNumbers, results: new Map() });
-        await interaction.reply({ content: '✅ Panel undian posisi balap berhasil dibuat!', ephemeral: true });
+        racingEvents.set(sentMessage.id, { type: 'normal', maxPosisi: maxPosisi, availableNumbers: availableNumbers, results: new Map() });
+        await interaction.reply({ content: '✅ Panel undian balap dibuat!', ephemeral: true });
+        return;
+    }
+
+    // --- FITUR BARU: /grupposisi ---
+    if (interaction.commandName === 'grupposisi') {
+        if (!interaction.member.permissions.has('ManageRoles')) return interaction.reply({ content: '❌ Perintah khusus Staff!', ephemeral: true });
+
+        const maxPosisi = interaction.options.getInteger('max_posisi');
+        if (maxPosisi < 2 || maxPosisi > 100) return interaction.reply({ content: '❌ Masukkan angka posisi antara 2 sampai 100!', ephemeral: true });
+
+        const maxA = Math.ceil(maxPosisi / 2);
+        const maxB = Math.floor(maxPosisi / 2);
+        
+        let availableSlots = [];
+        for (let i = 1; i <= maxA; i++) availableSlots.push({ group: 'A', pos: i });
+        for (let i = 1; i <= maxB; i++) availableSlots.push({ group: 'B', pos: i });
+
+        const embed = new EmbedBuilder().setColor('#1a1a1a').setTitle('🏁 VEC RACING TOURNAMENT - GROUP QUALIFYING')
+            .setDescription('Silakan klik tombol **"Ambil Posisi & Grup"** di bawah ini untuk mendapatkan nomor grid dan pembagian grup secara acak!')
+            .addFields(
+                { name: '🏁 Status Undian', value: `Sisa posisi tersedia: **${maxPosisi}** dari ${maxPosisi}\n*(🟡 Grup A: ${maxA} Slot | 🔵 Grup B: ${maxB} Slot)*`, inline: false },
+                { name: '📋 Daftar Grid & Grup Sementara', value: '_Belum ada yang mengambil posisi._', inline: false }
+            ).setFooter({ text: `Dibuat oleh ${interaction.user.username}` }).setTimestamp();
+
+        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('btn_ambil_grupposisi').setLabel('Ambil Posisi & Grup').setStyle(ButtonStyle.Success).setEmoji('🏎️'));
+        const sentMessage = await interaction.channel.send({ embeds: [embed], components: [row] });
+        
+        racingEvents.set(sentMessage.id, { type: 'group', maxPosisi: maxPosisi, availableSlots: availableSlots, results: new Map() });
+        await interaction.reply({ content: '✅ Panel undian balap format Grup berhasil dibuat!', ephemeral: true });
         return;
     }
 
@@ -837,27 +812,24 @@ client.on('interactionCreate', async interaction => {
         const endTime = Date.now() + durasiMenit * 60 * 1000;
         const endTimeSeconds = Math.floor(endTime / 1000);
 
-        const embedGw = new EmbedBuilder()
-            .setColor('#1a1a1a')
-            .setTitle('🎉 VEC GIVEAWAY 🎉')
+        const embedGw = new EmbedBuilder().setColor('#1a1a1a').setTitle('🎉 VEC GIVEAWAY 🎉')
             .setDescription(`🎁 **Hadiah:** ${hadiah}\n👑 **Jumlah Pemenang:** ${jumlahPemenang} Orang\n⏳ **Berakhir:** <t:${endTimeSeconds}:R> (<t:${endTimeSeconds}:f>)\n\nKlik tombol **"Ikut Giveaway"** di bawah untuk berpartisipasi!`)
             .addFields({ name: '👥 Total Peserta', value: '👥 **0 Orang**', inline: false })
-            .setFooter({ text: `Diadakan oleh ${interaction.user.username}` })
-            .setTimestamp();
+            .setFooter({ text: `Diadakan oleh ${interaction.user.username}` }).setTimestamp();
 
         const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('btn_join_giveaway').setLabel('Ikut Giveaway').setStyle(ButtonStyle.Primary).setEmoji('🎉'));
-
         const sentMessage = await interaction.channel.send({ embeds: [embedGw], components: [row] });
+        
         activeGiveaways.set(sentMessage.id, { hadiah: hadiah, winnersCount: jumlahPemenang, participants: new Set(), active: true, endTime: endTime });
-        await interaction.reply({ content: '✅ Giveaway berhasil dimulai!', ephemeral: true });
+        await interaction.reply({ content: '✅ Giveaway dimulai!', ephemeral: true });
 
         const checkGiveawayInterval = setInterval(async () => {
             if (Date.now() >= endTime) {
                 clearInterval(checkGiveawayInterval);
                 const gwData = activeGiveaways.get(sentMessage.id);
                 if (!gwData || !gwData.active) return;
-
                 gwData.active = false;
+                
                 const participantsArray = [...gwData.participants];
                 let winnerMentions = '', winnerIds = [];
 
@@ -868,12 +840,8 @@ client.on('interactionCreate', async interaction => {
                     for (const wId of winners) { winnerMentions += `<@${wId}>\n`; winnerIds.push(wId); }
                 }
 
-                const endedEmbed = new EmbedBuilder()
-                    .setColor('#1a1a1a')
-                    .setTitle('🎉 VEC GIVEAWAY - BERAKHIR 🎉')
-                    .setDescription(`🎁 **Hadiah:** ${hadiah}\n\n👑 **Pemenang Terpilih:**\n${winnerMentions}\n\n✨ Silakan menuju ke channel <#${CLAIM_CHANNEL_ID}> untuk melakukan claim hadiah Anda!`)
-                    .setTimestamp();
-
+                const endedEmbed = new EmbedBuilder().setColor('#1a1a1a').setTitle('🎉 VEC GIVEAWAY - BERAKHIR 🎉')
+                    .setDescription(`🎁 **Hadiah:** ${hadiah}\n\n👑 **Pemenang Terpilih:**\n${winnerMentions}\n\n✨ Silakan menuju ke channel <#${CLAIM_CHANNEL_ID}> untuk melakukan claim hadiah Anda!`).setTimestamp();
                 const disabledRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('btn_join_giveaway_ended').setLabel('Giveaway Selesai').setStyle(ButtonStyle.Secondary).setDisabled(true));
 
                 await sentMessage.edit({ embeds: [endedEmbed], components: [disabledRow] }).catch(() => {});
@@ -903,8 +871,7 @@ client.on('interactionCreate', async interaction => {
         if (!role || role.members.size === 0) return interaction.reply({ content: '❌ Tidak ada member.', ephemeral: true });
 
         const memberLines = role.members.map(m => m.displayName.includes('||') ? `> • ${m.displayName.split('||')[1].trim()}` : `> • ${m.displayName}`).join('\n');
-        const resultText = `__**LIST MEMBER VELOCITY ELITE CLUB**__\n${memberLines}\n\n__**ALL MEMBER LIST : ${role.members.size}**__\n*Last Update${new Date().toLocaleDateString('id-ID')}*`;
-        await interaction.reply({ content: resultText });
+        await interaction.reply({ content: `__**LIST MEMBER VELOCITY ELITE CLUB**__\n${memberLines}\n\n__**ALL MEMBER LIST : ${role.members.size}**__\n*Last Update${new Date().toLocaleDateString('id-ID')}*` });
         return;
     }
 
@@ -927,17 +894,17 @@ client.on('interactionCreate', async interaction => {
         if (!interaction.member.permissions.has('ManageRoles')) return interaction.reply({ content: '❌ Perintah khusus Staff!', ephemeral: true });
         const embedUpdate = new EmbedBuilder()
             .setColor('#1a1a1a')
-            .setTitle('🚀 V-BOT UPDATE LOGS - [v3.0]')
+            .setTitle('🚀 V-BOT UPDATE LOGS - [v3.1]')
             .setDescription(
                 `Pemberitahuan pembaruan sistem dan peningkatan fitur bot terbaru untuk Velocity Elite Club.\n\n` +
-                `> • **Versi:** v3.0 Stabil (Final Target Build)\n` +
-                `> • **Kategori:** Live Tracker Kuota Event (Bump System)\n` +
+                `> • **Versi:** v3.1 Stabil\n` +
+                `> • **Kategori:** Penambahan Sistem Undian Grup Balap\n` +
                 `> • **Diperbarui Oleh:** ${interaction.user}\n\n` +
                 `📋 **Detail Pembaruan:**\n` +
                 `\`\`\`text\n` +
-                `1. Bot otomatis mengirim pesan Tracker Kuota di dalam channel target ketika /maxrole dipasang.\n` +
-                `2. Sistem Bumping: Jika ada member diterima di event, pesan tracker lama akan ditarik mundur & bot memunculkan kembali info "-x slot @role lagi" di paling bawah chat.\n` +
-                `3. Tracker kuota menggunakan fitur Embed, sehingga tag nama Role di dalamnya tidak akan berbunyi ping! mengganggu ke user.\n` +
+                `1. Menambahkan command baru /grupposisi untuk membuat undian balap secara otomatis terbagi menjadi Grup A dan Grup B.\n` +
+                `2. Jika jumlah peserta ganjil, bot akan otomatis menyesuaikan agar pembagiannya tetap adil dan presisi.\n` +
+                `3. Tampilan hasil akhir otomatis diurutkan secara rapi berdasarkan grup masing-masing.\n` +
                 `\`\`\``
             )
             .setFooter({ text: `V-BOT System Update | ${new Date().toLocaleDateString('id-ID')}` })
@@ -965,6 +932,7 @@ client.on('interactionCreate', async interaction => {
                 `• \`/teks\` - Kirim pesan estetik.\n` +
                 `• \`/setupvlist\` - Kirim panel list member.\n` +
                 `• \`/setposisi\` - Buat undian grid balap.\n` +
+                `• \`/grupposisi\` - Buat undian grid dibagi Grup A & B.\n` +
                 `• \`/giveaway\` - Mulai giveaway.\n` +
                 `• \`/memberlist\` - Menampilkan list member.\n` +
                 `• \`/absensi\` - Buat panel absensi otomatis.\n` +
@@ -1189,4 +1157,4 @@ client.on('messageCreate', async message => {
     }
 });
 
-client.login(process.env.DISCORD_TOKEN); 
+client.login(process.env.DISCORD_TOKEN);
