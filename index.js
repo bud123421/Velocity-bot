@@ -39,7 +39,7 @@ const TRACKED_ROLES = {
 const racingEvents = new Map();
 const activeGiveaways = new Map();
 const activeAbsensi = new Map();
-const activeRoleLimits = new Map(); // Memori untuk menyimpan kuota Auto-Lock
+const activeRoleLimits = new Map(); // Memori untuk sistem Auto-Lock & Tracker
 
 // --- DAFTAR SLASH COMMANDS ---
 const commands = [
@@ -122,6 +122,11 @@ const commands = [
         .addRoleOption(option => option.setName('role').setDescription('Pilih role target').setRequired(true))
         .addChannelOption(option => option.setName('channel').setDescription('Pilih channel yang akan di-lock').setRequired(true))
         .addIntegerOption(option => option.setName('limit').setDescription('Batas kuota member').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('resetmaxrole')
+        .setDescription('Membatalkan/menghapus sistem auto-lock pada role tertentu')
+        .addRoleOption(option => option.setName('role').setDescription('Pilih role yang mau di-reset').setRequired(true)),
 
     new SlashCommandBuilder()
         .setName('absensi')
@@ -214,8 +219,8 @@ async function generateAbsensiText(guild, absenPointsMap) {
     return { text: fullText, total: totalCount };
 }
 
-// Fungsi Auto-Lock Channel jika kuota Role terpenuhi
-async function checkRoleLimitAndLock(guild, roleId) {
+// FUNGSI UTAMA: Mengurus Target Kuota, Bumping Pesan Sisa, dan Auto-Lock
+async function handleRoleUpdate(guild, roleId) {
     if (!activeRoleLimits.has(roleId)) return;
     const config = activeRoleLimits.get(roleId);
     
@@ -223,9 +228,20 @@ async function checkRoleLimitAndLock(guild, roleId) {
     const role = guild.roles.cache.get(roleId);
     if (!role) return;
 
-    if (role.members.size >= config.limit) {
+    const remaining = config.limit - role.members.size;
+
+    // Jika Kuota Penuh (Sisa 0 atau Minus)
+    if (remaining <= 0) {
         try {
             const channel = await guild.channels.fetch(config.channelId);
+            
+            // Hapus pesan tracker sisa kuota (jika ada) karena sudah penuh
+            if (config.trackerMsgId) {
+                try {
+                    const oldTracker = await channel.messages.fetch(config.trackerMsgId);
+                    if (oldTracker) await oldTracker.delete();
+                } catch (e) {}
+            }
             
             await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: false });
             
@@ -246,23 +262,67 @@ async function checkRoleLimitAndLock(guild, roleId) {
             
             await channel.send({ embeds: [embed] });
 
-            // Hapus config dari Database Logs agar tidak dibaca lagi
-            if (config.configMsgId) {
+            // Hapus Config Database dari channel staff
+            if (config.configMsgId && config.configChannelId) {
                 try {
-                    const logsChannel = await guild.channels.fetch(LOGS_CHANNEL_ID);
-                    const configMsg = await logsChannel.messages.fetch(config.configMsgId);
+                    const cfgChannel = await guild.channels.fetch(config.configChannelId);
+                    const configMsg = await cfgChannel.messages.fetch(config.configMsgId);
                     if (configMsg) await configMsg.delete();
-                } catch (e) { console.log("Config message di logs mungkin sudah dihapus manual."); }
+                } catch (e) {}
             }
             
             activeRoleLimits.delete(roleId);
         } catch (e) {
             console.error("Gagal auto-lock channel:", e);
         }
+    } 
+    // Jika Kuota Belum Penuh -> Update Pesan Tracker (Bump ke bawah)
+    else {
+        try {
+            const channel = await guild.channels.fetch(config.channelId);
+            
+            // Hapus pesan lama agar bot bisa kirim baru (bump ke paling bawah chat)
+            if (config.trackerMsgId) {
+                try {
+                    const oldTracker = await channel.messages.fetch(config.trackerMsgId);
+                    if (oldTracker) await oldTracker.delete();
+                } catch (e) {}
+            }
+
+            // Gunakan Embed agar mention role tidak berbunyi ping!
+            const trackerEmbed = new EmbedBuilder()
+                .setColor('#f1c40f')
+                .setDescription(`⏳ **SISA KUOTA:** Membutuhkan **-${remaining}**${role} lagi.`);
+            
+            const newTracker = await channel.send({ embeds: [trackerEmbed] });
+            
+            // Update ID Tracker baru ke memori & config pesan
+            config.trackerMsgId = newTracker.id;
+            activeRoleLimits.set(roleId, config);
+
+            if (config.configMsgId && config.configChannelId) {
+                try {
+                    const cfgChannel = await guild.channels.fetch(config.configChannelId);
+                    const configMsg = await cfgChannel.messages.fetch(config.configMsgId);
+                    if (configMsg) {
+                        await configMsg.edit(
+                            `⚙️ **[MAXROLE-CONFIG]**\n` +
+                            `RoleID: ${roleId}\n` +
+                            `ChannelID: ${config.channelId}\n` +
+                            `Limit: ${config.limit}\n` +
+                            `TrackerMsgID: ${config.trackerMsgId}\n` +
+                            `*(Catatan Sistem: Jangan hapus pesan ini agar target lock tidak hilang saat bot restart!)*`
+                        );
+                    }
+                } catch (e) {}
+            }
+        } catch (e) {
+            console.error("Gagal update tracker channel:", e);
+        }
     }
 }
 
-// --- BOT READY & LOAD DATABASE DARI LOGS ---
+// --- BOT READY & LOAD DATABASE DARI CHANNEL ---
 client.once('ready', async () => {
     console.log(`Bot ${client.user.tag} sudah online!`);
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -270,27 +330,34 @@ client.once('ready', async () => {
         await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
         console.log('Berhasil mendaftarkan semua slash commands!');
 
-        // Load Maxrole Config dari Channel Logs
-        const logsChannel = await client.channels.fetch(LOGS_CHANNEL_ID).catch(() => null);
-        if (logsChannel) {
-            const msgs = await logsChannel.messages.fetch({ limit: 50 });
-            msgs.forEach(msg => {
-                if (msg.author.id === client.user.id && msg.content.includes('[MAXROLE-CONFIG]')) {
-                    const roleMatch = msg.content.match(/RoleID:\s*(\d+)/);
-                    const channelMatch = msg.content.match(/ChannelID:\s*(\d+)/);
-                    const limitMatch = msg.content.match(/Limit:\s*(\d+)/);
-                    
-                    if (roleMatch && channelMatch && limitMatch) {
-                        activeRoleLimits.set(roleMatch[1], {
-                            channelId: channelMatch[1],
-                            limit: parseInt(limitMatch[1]),
-                            configMsgId: msg.id
-                        });
-                    }
-                }
-            });
-            console.log(`Memori dipulihkan: ${activeRoleLimits.size} tugas Maxrole aktif dari Logs.`);
-        }
+        // Scan channel Text & Thread untuk memulihkan Maxrole Configs & Tracker
+        client.guilds.cache.forEach(async guild => {
+            const textChannels = guild.channels.cache.filter(c => c.isTextBased());
+            for (const [id, channel] of textChannels) {
+                try {
+                    const msgs = await channel.messages.fetch({ limit: 20 });
+                    msgs.forEach(msg => {
+                        if (msg.author.id === client.user.id && msg.content.includes('[MAXROLE-CONFIG]')) {
+                            const roleMatch = msg.content.match(/RoleID:\s*(\d+)/);
+                            const channelMatch = msg.content.match(/ChannelID:\s*(\d+)/);
+                            const limitMatch = msg.content.match(/Limit:\s*(\d+)/);
+                            const trackerMatch = msg.content.match(/TrackerMsgID:\s*(\w+)/);
+                            
+                            if (roleMatch && channelMatch && limitMatch) {
+                                activeRoleLimits.set(roleMatch[1], {
+                                    channelId: channelMatch[1],
+                                    limit: parseInt(limitMatch[1]),
+                                    configMsgId: msg.id,
+                                    configChannelId: channel.id,
+                                    trackerMsgId: (trackerMatch && trackerMatch[1] !== 'null') ? trackerMatch[1] : null
+                                });
+                            }
+                        }
+                    });
+                } catch (e) { /* Abaikan channel yang bot tidak punya akses baca */ }
+            }
+        });
+        console.log(`Memori dipulihkan untuk tugas Maxrole.`);
     } catch (error) {
         console.error(error);
     }
@@ -303,27 +370,21 @@ client.on('interactionCreate', async interaction => {
         // --- BUTTON: AUTO RECRUITMENT ACCEPT (STATELESS) ---
         if (interaction.customId.startsWith('btn_acc_rec_')) {
             const targetId = interaction.customId.replace('btn_acc_rec_', '');
-            
             if (!interaction.member.roles.cache.has(HANDLE_RECRUITMENT_ROLE_ID) && !interaction.member.permissions.has('ManageRoles')) {
                 return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk mengurus recruitment!', ephemeral: true });
             }
 
             const embedDesc = interaction.message.embeds[0]?.description || "";
             const nameMatch = embedDesc.match(/\*\*Nama Pendaftar:\*\* ([^\n]+)/);
-            
-            if (!nameMatch) {
-                return interaction.reply({ content: '❌ Sistem gagal membaca nama dari panel ini. Silakan setnick manual.', ephemeral: true });
-            }
+            if (!nameMatch) return interaction.reply({ content: '❌ Sistem gagal membaca nama dari panel ini. Silakan setnick manual.', ephemeral: true });
             const fullName = nameMatch[1].trim();
 
             try {
                 const targetMember = await interaction.guild.members.fetch(targetId);
                 await targetMember.setNickname(`V-Newbies || ${fullName}`);
-                
                 const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
                     .setColor('#2ecc71')
                     .setDescription(`✅ **DITERIMA** oleh ${interaction.user}\nNickname telah diubah otomatis menjadi: \`V-Newbies || ${fullName}\``);
-                    
                 await interaction.update({ embeds: [updatedEmbed], components: [] });
             } catch (e) {
                 console.error(e);
@@ -337,11 +398,9 @@ client.on('interactionCreate', async interaction => {
             if (!interaction.member.roles.cache.has(HANDLE_RECRUITMENT_ROLE_ID) && !interaction.member.permissions.has('ManageRoles')) {
                 return interaction.reply({ content: '❌ Anda tidak memiliki izin!', ephemeral: true });
             }
-
             const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
                 .setColor('#e74c3c')
                 .setDescription(`❌ **DITOLAK** oleh ${interaction.user}`);
-                
             await interaction.update({ embeds: [updatedEmbed], components: [] });
             return;
         }
@@ -349,17 +408,13 @@ client.on('interactionCreate', async interaction => {
         // --- BUTTON: AUTO EVENT ACCEPT (STATELESS) ---
         if (interaction.customId.startsWith('btn_acc_evt_')) {
             const targetId = interaction.customId.replace('btn_acc_evt_', '');
-            
             if (!interaction.member.roles.cache.has(EVENT_ADMIN_ROLE_ID) && !interaction.member.permissions.has('ManageRoles')) {
                 return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk mengurus pendaftaran event!', ephemeral: true });
             }
 
             const embedDesc = interaction.message.embeds[0]?.description || "";
             const nameMatch = embedDesc.match(/\*\*Nama:\*\* ([^\n]+)/);
-            
-            if (!nameMatch) {
-                return interaction.reply({ content: '❌ Sistem gagal membaca nama dari panel ini.', ephemeral: true });
-            }
+            if (!nameMatch) return interaction.reply({ content: '❌ Sistem gagal membaca nama dari panel ini.', ephemeral: true });
             const fullName = nameMatch[1].trim();
 
             try {
@@ -370,11 +425,10 @@ client.on('interactionCreate', async interaction => {
                 const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
                     .setColor('#2ecc71')
                     .setDescription(`🏁 **PENDAFTARAN DITERIMA** oleh ${interaction.user}\n\n• Role <@&${EVENT_ACCEPTED_ROLE_ID}> telah diberikan.\n• Nickname diubah menjadi: \`Civil || ${fullName}\``);
-                    
                 await interaction.update({ embeds: [updatedEmbed], components: [] });
 
-                // Cek kuota limit event & lock channel jika penuh
-                await checkRoleLimitAndLock(interaction.guild, EVENT_ACCEPTED_ROLE_ID);
+                // Panggil sistem pembaruan tracker sisa & lock
+                await handleRoleUpdate(interaction.guild, EVENT_ACCEPTED_ROLE_ID);
 
             } catch (e) {
                 console.error(e);
@@ -537,24 +591,63 @@ client.on('interactionCreate', async interaction => {
         const limit = interaction.options.getInteger('limit');
 
         let configMsgId = null;
-        try {
-            const logsChannel = await interaction.guild.channels.fetch(LOGS_CHANNEL_ID);
-            if (logsChannel) {
-                const configMsg = await logsChannel.send(
-                    `⚙️ **[MAXROLE-CONFIG]**\n` +
-                    `RoleID: ${targetRole.id}\n` +
-                    `ChannelID: ${targetChannel.id}\n` +
-                    `Limit: ${limit}\n` +
-                    `*(Catatan Sistem: Jangan hapus pesan ini agar target lock tidak hilang saat bot restart!)*`
-                );
-                configMsgId = configMsg.id;
-            }
-        } catch (e) { console.log("Gagal mengirim config ke logs."); }
+        let configChannelId = interaction.channel.id;
 
-        activeRoleLimits.set(targetRole.id, { channelId: targetChannel.id, limit: limit, configMsgId: configMsgId });
+        try {
+            // Trik Database: Kirim pesan config ke channel tempat perintah dijalankan (ditambahkan trackerMsg = null dulu)
+            const configMsg = await interaction.channel.send(
+                `⚙️ **[MAXROLE-CONFIG]**\n` +
+                `RoleID: ${targetRole.id}\n` +
+                `ChannelID: ${targetChannel.id}\n` +
+                `Limit: ${limit}\n` +
+                `TrackerMsgID: null\n` +
+                `*(Catatan Sistem: Jangan hapus pesan ini agar target lock tidak hilang saat bot restart!)*`
+            );
+            configMsgId = configMsg.id;
+        } catch (e) { console.log("Gagal mengirim config."); }
+
+        activeRoleLimits.set(targetRole.id, { channelId: targetChannel.id, limit: limit, configMsgId: configMsgId, configChannelId: configChannelId, trackerMsgId: null });
         await interaction.editReply({ content: `✅ **Sistem Lock Otomatis Aktif secara Permanen!**\nBot akan mengawasi role ${targetRole}.\nJika jumlahnya mencapai **${limit} member**, bot otomatis me-lock channel <#${targetChannel.id}>.` });
 
-        await checkRoleLimitAndLock(interaction.guild, targetRole.id);
+        // Cek langsung sisa kuota dan buat Embed hitungan mundur pertama di target channel
+        await handleRoleUpdate(interaction.guild, targetRole.id);
+        return;
+    }
+
+    if (interaction.commandName === 'resetmaxrole') {
+        if (!interaction.member.permissions.has('ManageRoles') && !interaction.member.permissions.has('ManageChannels')) {
+            return interaction.reply({ content: '❌ Perintah ini khusus untuk Admin/Staff!', ephemeral: true });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        const targetRole = interaction.options.getRole('role');
+
+        if (!activeRoleLimits.has(targetRole.id)) {
+            return interaction.editReply({ content: `⚠️ Tidak ada konfigurasi auto-lock aktif untuk role ${targetRole}.` });
+        }
+
+        const config = activeRoleLimits.get(targetRole.id);
+
+        // Hapus pesan config dari channel tempat admin membuatnya
+        if (config.configMsgId && config.configChannelId) {
+            try {
+                const cfgChannel = await interaction.guild.channels.fetch(config.configChannelId);
+                const configMsg = await cfgChannel.messages.fetch(config.configMsgId);
+                if (configMsg) await configMsg.delete();
+            } catch (e) {}
+        }
+        
+        // Hapus pesan tracker sisa kuota (jika ada) di channel target
+        if (config.trackerMsgId && config.channelId) {
+            try {
+                const trChannel = await interaction.guild.channels.fetch(config.channelId);
+                const trMsg = await trChannel.messages.fetch(config.trackerMsgId);
+                if (trMsg) await trMsg.delete();
+            } catch (e) {}
+        }
+
+        activeRoleLimits.delete(targetRole.id);
+        await interaction.editReply({ content: `✅ **Berhasil di-reset!**\nSistem auto-lock dan tracker sisa kuota untuk role ${targetRole} telah dibatalkan & dihapus.` });
         return;
     }
 
@@ -620,8 +713,8 @@ client.on('interactionCreate', async interaction => {
             const embedRole = new EmbedBuilder().setColor('#1a1a1a').setDescription(descText).setTimestamp();
             await interaction.reply({ embeds: [embedRole] });
 
-            if (addRole1) await checkRoleLimitAndLock(interaction.guild, addRole1.id);
-            if (addRole2) await checkRoleLimitAndLock(interaction.guild, addRole2.id);
+            if (addRole1) await handleRoleUpdate(interaction.guild, addRole1.id);
+            if (addRole2) await handleRoleUpdate(interaction.guild, addRole2.id);
 
         } catch (error) { console.error(error); }
         return;
@@ -642,6 +735,11 @@ client.on('interactionCreate', async interaction => {
             let removedRolesText = role2 ? `${role1} &${role2}` : `${role1}`;
             const embedRemove = new EmbedBuilder().setColor('#e74c3c').setDescription(`🗑️ **Role Dicopot / Dihapus**\n\n• **Server Role / Target:** ${removedRolesText}\n• **Berhasil Dicopot Dari:** ${targetUser}\n\nDicopot oleh${interaction.user}`).setTimestamp();
             await interaction.editReply({ embeds: [embedRemove] });
+            
+            // Call handleRoleUpdate in case we removed a tracked role, it will bump tracker and increase slot!
+            if (role1) await handleRoleUpdate(interaction.guild, role1.id);
+            if (role2) await handleRoleUpdate(interaction.guild, role2.id);
+
         } catch (error) { await interaction.editReply({ content: '❌ Gagal mencopot role. Pastikan hirarki bot di atas member.' }); }
         return;
     }
@@ -664,7 +762,7 @@ client.on('interactionCreate', async interaction => {
             .setTimestamp();
 
         await interaction.reply({ embeds: [embedAcc] });
-        if (role) await checkRoleLimitAndLock(interaction.guild, role.id);
+        if (role) await handleRoleUpdate(interaction.guild, role.id);
         return;
     }
 
@@ -829,17 +927,17 @@ client.on('interactionCreate', async interaction => {
         if (!interaction.member.permissions.has('ManageRoles')) return interaction.reply({ content: '❌ Perintah khusus Staff!', ephemeral: true });
         const embedUpdate = new EmbedBuilder()
             .setColor('#1a1a1a')
-            .setTitle('🚀 V-BOT UPDATE LOGS - [v2.8.5]')
+            .setTitle('🚀 V-BOT UPDATE LOGS - [v3.0]')
             .setDescription(
                 `Pemberitahuan pembaruan sistem dan peningkatan fitur bot terbaru untuk Velocity Elite Club.\n\n` +
-                `> • **Versi:** v2.8.5 Stabil\n` +
-                `> • **Kategori:** Sistem Stateless & Perbaikan Auto-Detect Edited Message\n` +
+                `> • **Versi:** v3.0 Stabil (Final Target Build)\n` +
+                `> • **Kategori:** Live Tracker Kuota Event (Bump System)\n` +
                 `> • **Diperbarui Oleh:** ${interaction.user}\n\n` +
                 `📋 **Detail Pembaruan:**\n` +
                 `\`\`\`text\n` +
-                `1. Bot sekarang mendeteksi member yang telat/lupa memberikan tag role dengan merespon fitur Edit Pesan (messageUpdate).\n` +
-                `2. Sistem pendaftaran Event & Recruitment sudah diubah menjadi STATELESS (Permanen). Tombol tidak akan kedaluwarsa meski bot direstart.\n` +
-                `3. Kuota /maxrole sekarang disimpan secara otomatis ke channel Logs sebagai Database permanen. Tidak akan hilang jika bot ter-reset.\n` +
+                `1. Bot otomatis mengirim pesan Tracker Kuota di dalam channel target ketika /maxrole dipasang.\n` +
+                `2. Sistem Bumping: Jika ada member diterima di event, pesan tracker lama akan ditarik mundur & bot memunculkan kembali info "-x slot @role lagi" di paling bawah chat.\n` +
+                `3. Tracker kuota menggunakan fitur Embed, sehingga tag nama Role di dalamnya tidak akan berbunyi ping! mengganggu ke user.\n` +
                 `\`\`\``
             )
             .setFooter({ text: `V-BOT System Update | ${new Date().toLocaleDateString('id-ID')}` })
@@ -857,11 +955,12 @@ client.on('interactionCreate', async interaction => {
             .setDescription(
                 `Berikut adalah daftar perintah bot yang tersedia:\n\n` +
                 `**🔹 Slash Commands (/):**\n` +
-                `• \`/logs\` - Kirim log data (Nama otomatis dari ||).\n` +
+                `• \`/logs\` - Kirim log data.\n` +
                 `• \`/roleadd\` - Tambah & hapus role.\n` +
                 `• \`/unrole\` - Menghapus role dari member.\n` +
                 `• \`/listrole\` - Menampilkan daftar mention member.\n` +
                 `• \`/maxrole\` - Atur target limit member untuk auto-lock.\n` +
+                `• \`/resetmaxrole\` - Membatalkan tugas auto-lock event.\n` +
                 `• \`/acc\` - Mengirim hasil review application.\n` +
                 `• \`/teks\` - Kirim pesan estetik.\n` +
                 `• \`/setupvlist\` - Kirim panel list member.\n` +
